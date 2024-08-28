@@ -116,26 +116,26 @@ jobs:
           RUSTFLAGS: --cfg loom -D warnings -D clippy::pedantic -D clippy::nursery
         run: cargo hack clippy --profile test --feature-powerset
 
-  # coverage:
-  #   name: Coverage
-  #   runs-on: ubuntu-latest
-  #   container:
-  #     image: xd009642/tarpaulin:latest
-  #     options: --security-opt seccomp=unconfined 
-  #   steps:
-  #     - name: Checkout repository
-  #       uses: actions/checkout@v3
-  #     - name: Generate coverage
-  #       run: >
-  #         cargo tarpaulin
-  #         --verbose
-  #         --engine llvm
-  #         --all-features
-  #         --out xml
-  #     - name: Upload to Codecov
-  #       uses: codecov/codecov-action@v3
-  #       env:
-  #         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    container:
+      image: xd009642/tarpaulin:latest
+      options: --security-opt seccomp=unconfined 
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      - name: Generate coverage
+        run: >
+          cargo tarpaulin
+          --verbose
+          --engine llvm
+          --all-features
+          --out xml
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v3
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   miri:
     name: Miri

@@ -5,7 +5,7 @@
 [![Crates][crates-badge]][crates]
 [![Docs][docs-badge]][docs]
 [![CI][ci-badge]][ci]
-<!-- [![Codecov][codecov-badge]][codecov] -->
+[![Codecov][codecov-badge]][codecov]
 ![No_std][no_std-badge]
 
 CLH lock is a List-Based Queuing Lock that avoids network contention by
@@ -199,7 +199,7 @@ each of your dependencies, including this one.
 [docs]: https://docs.rs/clhlock
 [crates]: https://crates.io/crates/clhlock
 [ci]: https://github.com/pedromfedricci/clhlock/actions/workflows/ci.yml
-<!-- [codecov]: https://codecov.io/gh/pedromfedricci/clhlock -->
+[codecov]: https://codecov.io/gh/pedromfedricci/clhlock
 [cargo-crev]: https://github.com/crev-dev/cargo-crev
 
 [Craig]: https://dada.cs.washington.edu/research/tr/1993/02/UW-CSE-93-02-02.pdf
