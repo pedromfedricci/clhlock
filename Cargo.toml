@@ -1,0 +1,37 @@
+[package]
+description = """
+An implementation of Craig and, indenpendently, Magnussen, Landin, and
+Hagersten queue lock for mutual exclusion, referred to as CLH lock.
+"""
+name = "clhlock"
+version = "0.1.0"
+edition = "2021"
+# NOTE: Rust 1.70 is required for `AtomicPtr::as_ptr`.
+rust-version = "1.70.0"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+documentation = "https://docs.rs/clhlock"
+repository = "https://github.com/pedromfedricci/clhlock"
+authors = ["Pedro de Matos Fedricci <pedromfedricci@gmail.com>"]
+categories = ["no-std", "concurrency"]
+keywords = ["no_std", "mutex", "spin-lock", "clh-lock"]
+
+[features]
+# NOTE: Features `yield` and `thread_local` require std.
+yield = []
+thread_local = []
+
+[target.'cfg(loom)'.dev-dependencies.loom]
+version = "0.7"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = ["cfg(tarpaulin)", "cfg(tarpaulin_include)", "cfg(loom)"]
+
+[[example]]
+name = "thread_local"
+required-features = ["thread_local"]
