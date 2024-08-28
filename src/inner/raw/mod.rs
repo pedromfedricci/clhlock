@@ -32,6 +32,7 @@ impl<L: Lock> MutexNodeInner<L> {
 
     /// Creates a new, locked, Loom based `MutexNodeInner` instance (non-const).
     #[cfg(all(loom, test))]
+    #[cfg(not(tarpaulin_include))]
     fn locked() -> Self {
         let prev = Cell::null_mut();
         let lock = Lock::locked();
@@ -48,6 +49,7 @@ impl<L: Lock> MutexNodeInner<L> {
 
     /// Creates a new, unlocked, Loom based `MutexNodeInner` instance (non-const).
     #[cfg(all(loom, test))]
+    #[cfg(not(tarpaulin_include))]
     fn unlocked() -> Self {
         let prev = Cell::null_mut();
         let lock = Lock::unlocked();
@@ -62,6 +64,7 @@ impl<L: Lock> MutexNodeInner<L> {
 
     /// Change the inner, Loom based lock state to locked.
     #[cfg(all(loom, test))]
+    #[cfg(not(tarpaulin_include))]
     fn lock(&mut self) {
         self.lock = Lock::locked();
     }
