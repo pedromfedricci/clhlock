@@ -26,6 +26,11 @@ toolchain = "1.70.0"
 command = "cargo"
 args = ["check", "--all-features"]
 
+# Check semver viloations.
+[tasks.semver]
+command = "cargo"
+args = ["semver-checks", "${@}"]
+
 # Run all documentation snippets.
 [tasks.doc]
 command = "cargo"
