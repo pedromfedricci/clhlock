@@ -27,6 +27,10 @@ pub struct MutexNode {
     inner: inner::MutexNode<AtomicBool>,
 }
 
+// Same unsafe impls as `crate::inner::raw::MutexNode`.
+unsafe impl Send for MutexNode {}
+unsafe impl Sync for MutexNode {}
+
 impl MutexNode {
     /// Creates new `MutexNode` instance.
     ///
@@ -294,6 +298,10 @@ impl<T, R> From<T> for Mutex<T, R> {
 }
 
 impl<T: ?Sized + Debug, R: Relax> Debug for Mutex<T, R> {
+    /// Formats the mutex's value using the given formatter.
+    ///
+    /// This will lock the mutex to do so. If the lock is already held by the
+    /// thread, calling this function will cause a deadlock.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         self.inner.fmt(f)
     }
@@ -352,7 +360,7 @@ pub struct MutexGuard<'a, T: ?Sized, R> {
 }
 
 // Same unsafe impls as `crate::inner::raw::MutexGuard`.
-// unsafe impl<T: ?Sized + Send, R> Send for MutexGuard<'_, T, R> {}
+unsafe impl<T: ?Sized + Send, R> Send for MutexGuard<'_, T, R> {}
 unsafe impl<T: ?Sized + Sync, R> Sync for MutexGuard<'_, T, R> {}
 
 #[doc(hidden)]
