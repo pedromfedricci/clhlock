@@ -76,6 +76,10 @@ pub struct MutexNode<L> {
     inner: NonNull<MutexNodeInner<L>>,
 }
 
+// SAFETY: Public APIs that mutate state require exclusive references.
+unsafe impl<L> Send for MutexNode<L> {}
+unsafe impl<L> Sync for MutexNode<L> {}
+
 impl<L> MutexNode<L> {
     /// Creates a new `MuexNode` intance from a raw pointer.
     ///
@@ -140,7 +144,7 @@ impl<L> Drop for MutexNode<L> {
         // be null, since the tail is initialized with a valid allocation, and
         // all tail updates point to valid, heap allocated nodes. The drop call
         // is only ever run once for any value, and this instance is the only
-        // pointer to this heap allocated node.
+        // pointer to this heap allocated node at drop call time.
         drop(unsafe { Box::from_raw(inner) });
     }
 }
@@ -205,7 +209,7 @@ impl<T: ?Sized, L, W> Drop for Mutex<T, L, W> {
         // be null, since the tail is initialized with a valid allocation, and
         // all tail updates point to valid, heap allocated nodes. The drop call
         // is only ever run once for any value, and this instance is the only
-        // pointer to this heap allocated node.
+        // pointer to this heap allocated node at drop call time.
         drop(unsafe { MutexNode::from_ptr(tail) });
     }
 }
@@ -230,7 +234,6 @@ impl<T: ?Sized + Debug, L: Lock, W: Wait> Debug for Mutex<T, L, W> {
 
 /// An RAII implementation of a "scoped lock" of a mutex. When this structure is
 /// dropped (falls out of scope), the lock will be unlocked.
-#[must_use = "if unused the Mutex will immediately unlock"]
 pub struct MutexGuard<'a, T: ?Sized, L: Lock, W> {
     lock: &'a Mutex<T, L, W>,
     head: &'a mut MutexNode<L>,
@@ -238,8 +241,8 @@ pub struct MutexGuard<'a, T: ?Sized, L: Lock, W> {
 
 // Rust's `std::sync::MutexGuard` is not Send for pthread compatibility, but this
 // impl is safe to be Send. Same unsafe Sync impl as `std::sync::MutexGuard`.
-// unsafe impl<T: ?Sized + Send, L: Lock + Send, W: Wait> Send for MutexGuard<'_, T, L, W> {}
-unsafe impl<T: ?Sized + Sync, L: Lock, W: Wait> Sync for MutexGuard<'_, T, L, W> {}
+unsafe impl<T: ?Sized + Send, L: Lock, W> Send for MutexGuard<'_, T, L, W> {}
+unsafe impl<T: ?Sized + Sync, L: Lock, W> Sync for MutexGuard<'_, T, L, W> {}
 
 impl<'a, T: ?Sized, L: Lock, W> MutexGuard<'a, T, L, W> {
     /// Creates a new `MutexGuard` instance.
@@ -258,8 +261,8 @@ impl<'a, T: ?Sized, L: Lock, W> MutexGuard<'a, T, L, W> {
 }
 
 impl<'a, T: ?Sized, L: Lock, W> Drop for MutexGuard<'a, T, L, W> {
-    #[inline]
     /// Unlocks the mutex associated with this guard.
+    #[inline]
     fn drop(&mut self) {
         // SAFETY: The inner pointer always points to valid nodes allocations.
         let inner = unsafe { self.head.inner.as_ref() };
@@ -270,7 +273,7 @@ impl<'a, T: ?Sized, L: Lock, W> Drop for MutexGuard<'a, T, L, W> {
         // be null, since the tail is initialized with a valid allocation, and
         // all tail updates point to valid, heap allocated nodes. The drop call
         // is only ever run once for any value, and this instance is the only
-        // pointer to this heap allocated node.
+        // pointer to this heap allocated node at drop call time.
         unsafe { MutexNode::set(self.head, prev) }
     }
 }

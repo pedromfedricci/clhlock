@@ -50,8 +50,8 @@ Or add a entry under the `[dependencies]` section in your `Cargo.toml`:
 # Cargo.toml
 
 [dependencies]
-# Available features: `yield` and thread_local`.
-clhlock = { version = "0.1", features = ["yield, thread_local"] }
+# Available features: `yield` and `thread_local`.
+clhlock = { version = "0.1", features = ["yield", "thread_local"] }
 ```
 
 ## Documentation
@@ -66,7 +66,7 @@ RUSTDOCFLAGS="--cfg docsrs" cargo +nightly doc --all-features --open
 ## Waiting queue node allocations
 
 Queue nodes are allocated in the heap, and their ownership is transparently
-moved from the lock holding thread to it successor. Allocationg the nodes in
+moved from the lock holding thread to its successor. Allocating the nodes in
 the stack is not allowed since the CLH lock protocol does not guarantee that
 a predecessor thread will be live by the time a successor access its
 associated locking node. Locking operations require exclusive access to local
