@@ -8,6 +8,7 @@ use crate::lock::{Lock, Wait};
 
 type StaticNode<N> = &'static LocalMutexNode<N>;
 
+/// A handle to a [`MutexNode`] stored at the thread local storage.
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct LocalMutexNode<N: 'static> {
@@ -22,14 +23,16 @@ pub struct LocalMutexNode<N: 'static> {
 
 #[cfg(not(tarpaulin_include))]
 impl<N> LocalMutexNode<N> {
+    /// Creates a new `LocalMutexNode` key from the provided thread local node
+    /// key.
     #[cfg(not(all(loom, test)))]
-    #[must_use]
     pub const fn new(key: LocalKey<RefCell<N>>) -> Self {
         Self { key }
     }
 
+    /// Creates a new Loom based `LocalMutexNode` key from the provided thread
+    /// local node key.
     #[cfg(all(loom, test))]
-    #[must_use]
     pub const fn new(key: &'static LocalKey<RefCell<N>>) -> Self {
         Self { key }
     }
@@ -62,6 +65,10 @@ impl<T: ?Sized, L: Lock, W: Wait> Mutex<T, L, W> {
     /// a closure against its guard.
     ///
     /// # Safety
+    ///
+    /// See: `with_local_node_unchecked`.
+    ///
+    /// # Panics
     ///
     /// See: `with_local_node_unchecked`.
     pub unsafe fn lock_with_local_unchecked<N, F, Ret>(&self, node: StaticNode<N>, f: F) -> Ret
@@ -102,6 +109,11 @@ impl<T: ?Sized, L: Lock, W: Wait> Mutex<T, L, W> {
     /// local node is not already in use for the current thread. A thread local
     /// node is release to the current thread once the associated `with_local`'s
     /// f closure runs out of scope.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the key currently has its destructor running, and it **may**
+    /// panic if the destructor has previously been run for this thread.
     unsafe fn with_local_node_unchecked<N, F, Ret>(&self, node: StaticNode<N>, f: F) -> Ret
     where
         N: DerefMut<Target = MutexNode<L>>,
