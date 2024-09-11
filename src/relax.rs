@@ -28,7 +28,7 @@ use crate::cfg::thread;
 ///
 /// struct Spin;
 ///
-/// unsafe impl Relax for Spin {
+/// impl Relax for Spin {
 ///     #[inline(always)]
 ///     fn new() -> Self {
 ///         Self
@@ -40,14 +40,7 @@ use crate::cfg::thread;
 ///     }
 /// }
 /// ```
-///
-/// # Safety
-///
-/// All associated function implementations **must not** cause a thread exit,
-/// such as envoking a uncaught [`core::panic!`] call, or any other operation
-/// that will panic the thread. Exiting the thread will result in undefined
-/// behiavior.
-pub unsafe trait Relax {
+pub trait Relax {
     /// Returns the initial value for this relaxing strategy.
     fn new() -> Self;
 
@@ -73,9 +66,7 @@ pub unsafe trait Relax {
 /// [priority inversion]: https://matklad.github.io/2020/01/02/spinlocks-considered-harmful.html
 pub struct Spin;
 
-// SAFETY: None of the associated function implementations contain any code
-// that could cause a thread exit.
-unsafe impl Relax for Spin {
+impl Relax for Spin {
     #[inline(always)]
     fn new() -> Self {
         Self
@@ -98,10 +89,8 @@ unsafe impl Relax for Spin {
 #[cfg_attr(docsrs, doc(cfg(feature = "yield")))]
 pub struct Yield;
 
-// SAFETY: None of the associated function implementations contain any code
-// that could cause a thread exit.
 #[cfg(any(feature = "yield", test))]
-unsafe impl Relax for Yield {
+impl Relax for Yield {
     #[inline(always)]
     fn new() -> Self {
         Self
@@ -121,9 +110,7 @@ unsafe impl Relax for Yield {
 /// (i.e: this is a workaround for possible compiler bugs).
 pub struct Loop;
 
-// SAFETY: None of the associated function implementations contain any code
-// that could cause a thread exit.
-unsafe impl Relax for Loop {
+impl Relax for Loop {
     #[inline(always)]
     fn new() -> Self {
         Self
@@ -145,6 +132,12 @@ unsafe impl Relax for Loop {
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+/// An unsigned integer type use as the inner type for [`Backoff`].
+///
+/// All backoff related arithmetic operations (eg. left shift, sum) should only
+/// only use this same type as the right-hand and lef-hand side types.
+type Uint = u32;
+
 /// A strategy that, as [`Spin`], will run a busy-wait spin-loop, except this
 /// implementation will perform exponential backoff.
 ///
@@ -154,25 +147,28 @@ unsafe impl Relax for Loop {
 /// subject to priority inversion problems, you may want to consider a yielding
 /// strategy or using a scheduler-aware lock.
 pub struct SpinBackoff {
-    step: Step,
+    inner: Backoff<{ Self::MAX }>,
 }
 
 impl SpinBackoff {
-    const SPIN_LIMIT: u32 = 6;
+    /// The largest value the inner backoff counter can reach.
+    const MAX: Uint = 6;
 }
 
-// SAFETY: None of the associated function implementations contain any code
-// that could cause a thread exit.
-unsafe impl Relax for SpinBackoff {
+// The maximum inner value **must** be smaller than Uint::BITS, or else the
+// bitshift operation will overflow, which is incorrect behavior.
+const _: () = assert!(SpinBackoff::MAX < Uint::BITS);
+
+impl Relax for SpinBackoff {
     #[inline(always)]
     fn new() -> Self {
-        Self { step: Step::default() }
+        Self { inner: Backoff::default() }
     }
 
     #[inline(always)]
     fn relax(&mut self) {
-        self.step.spin_to(Self::SPIN_LIMIT);
-        self.step.step_to(Self::SPIN_LIMIT);
+        self.inner.saturating_spin();
+        self.inner.saturating_step();
     }
 }
 
@@ -188,63 +184,71 @@ unsafe impl Relax for SpinBackoff {
 #[cfg(any(feature = "yield", test))]
 #[cfg_attr(docsrs, doc(cfg(feature = "yield")))]
 pub struct YieldBackoff {
-    step: Step,
+    inner: Backoff<{ Self::MAX }>,
 }
 
 #[cfg(any(feature = "yield", test))]
 impl YieldBackoff {
-    const SPIN_LIMIT: u32 = SpinBackoff::SPIN_LIMIT;
-    const YIELD_LIMIT: u32 = 10;
+    /// The largest value the inner backoff counter can reach.
+    const MAX: Uint = SpinBackoff::MAX;
 }
 
-// SAFETY: None of the associated function implementations contain any code
-// that could cause a thread exit.
+// The maximum inner value **must** be smaller than Uint::BITS, or else the
+// bitshift operation will overflow, which is incorrect behavior.
 #[cfg(any(feature = "yield", test))]
-unsafe impl Relax for YieldBackoff {
+const _: () = assert!(YieldBackoff::MAX < Uint::BITS);
+
+#[cfg(any(feature = "yield", test))]
+impl Relax for YieldBackoff {
     #[inline(always)]
     fn new() -> Self {
-        Self { step: Step::default() }
+        Self { inner: Backoff::default() }
     }
 
     #[inline(always)]
     fn relax(&mut self) {
-        if self.step.0 <= Self::SPIN_LIMIT {
-            self.step.spin();
+        if self.inner.0 < Self::MAX {
+            self.inner.wrapping_spin();
         } else {
             thread::yield_now();
         }
-        self.step.step_to(Self::YIELD_LIMIT);
+        self.inner.saturating_step();
     }
 }
 
-/// Keeps count of the number of steps taken.
+/// Inner backoff counter that keeps track of the number of shifts applied.
+///
+/// The maximum value the inner shift counter can take is defined by `MAX`.
 #[derive(Default)]
-struct Step(u32);
+struct Backoff<const MAX: Uint>(Uint);
 
-impl Step {
-    /// Unbounded backoff spinning.
+impl<const MAX: Uint> Backoff<MAX> {
+    /// The number of iterations that the backoff spin loop will execute, the
+    /// result of the expression may overflow.
+    const fn end(shifts: Uint) -> Uint {
+        1 << shifts
+    }
+
+    /// Runs a bounded spin loop `1 << self.inner` times, up to `MAX` times.
+    fn saturating_spin(&self) {
+        let shifts = self.0.min(MAX);
+        for _ in 0..Self::end(shifts) {
+            hint::spin_loop();
+        }
+    }
+
+    /// Runs a unbounded spin loop `1 << self.inner` times, the result of the
+    /// expression may overflow.
     #[cfg(any(feature = "yield", test))]
-    #[inline(always)]
-    fn spin(&self) {
-        for _ in 0..1 << self.0 {
+    fn wrapping_spin(&self) {
+        for _ in 0..Self::end(self.0) {
             hint::spin_loop();
         }
     }
 
-    /// Bounded backoff spinning.
-    #[inline(always)]
-    fn spin_to(&self, max: u32) {
-        for _ in 0..1 << self.0.min(max) {
-            hint::spin_loop();
-        }
-    }
-
-    /// Bounded step increment.
-    #[inline(always)]
-    fn step_to(&mut self, end: u32) {
-        if self.0 <= end {
-            self.0 += 1;
-        }
+    /// Incremets one to the inner counter, saturating the counter at `MAX`.
+    fn saturating_step(&mut self) {
+        (self.0 < MAX).then(|| self.0 += 1);
     }
 }
 
@@ -259,9 +263,7 @@ pub(crate) struct RelaxWait<R> {
     waiter: R,
 }
 
-// SAFETY: None of the associated function implementations contain any code
-// that could cause a thread exit.
-unsafe impl<R: Relax> Relax for RelaxWait<R> {
+impl<R: Relax> Relax for RelaxWait<R> {
     fn new() -> Self {
         Self { waiter: R::new() }
     }
@@ -275,35 +277,41 @@ impl<R: Relax> Wait for RelaxWait<R> {}
 
 #[cfg(all(not(loom), test))]
 mod test {
-    fn returns<R: super::Relax>() {
+    use super::{Relax, Uint};
+
+    fn returns<R: Relax, const MAX: Uint>() {
         let mut relax = R::new();
-        for _ in 0..10 {
+        for _ in 0..=MAX.saturating_mul(10) {
             relax.relax();
         }
     }
 
     #[test]
     fn spins() {
-        returns::<super::Spin>();
+        returns::<super::Spin, 10>();
     }
 
     #[test]
     fn spins_backoff() {
-        returns::<super::SpinBackoff>();
+        use super::SpinBackoff;
+        const MAX: Uint = SpinBackoff::MAX;
+        returns::<SpinBackoff, MAX>();
     }
 
     #[test]
     fn yields() {
-        returns::<super::Yield>();
+        returns::<super::Yield, 10>();
     }
 
     #[test]
     fn yields_backoff() {
-        returns::<super::YieldBackoff>();
+        use super::YieldBackoff;
+        const MAX: u32 = YieldBackoff::MAX;
+        returns::<YieldBackoff, MAX>();
     }
 
     #[test]
     fn loops() {
-        returns::<super::Loop>();
+        returns::<super::Loop, 10>();
     }
 }
