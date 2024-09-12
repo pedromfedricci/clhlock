@@ -91,7 +91,8 @@ impl<L> MutexNode<L> {
     ///
     /// [memory layout]: https://doc.rust-lang.org/alloc/boxed/index.html#memory-layout
     const unsafe fn from_ptr(ptr: *mut MutexNodeInner<L>) -> Self {
-        Self { inner: NonNull::new_unchecked(ptr) }
+        // SAFETY: Caller guaranteed that `ptr` is non-null.
+        Self { inner: unsafe { NonNull::new_unchecked(ptr) } }
     }
 
     /// Sets the inner pointer of this node.
@@ -108,7 +109,8 @@ impl<L> MutexNode<L> {
     ///
     /// [memory layout]: https://doc.rust-lang.org/alloc/boxed/index.html#memory-layout
     unsafe fn set(this: &mut Self, ptr: *mut MutexNodeInner<L>) {
-        this.inner = NonNull::new_unchecked(ptr);
+        // SAFETY: Caller guaranteed that `ptr` is non-null.
+        this.inner = unsafe { NonNull::new_unchecked(ptr) };
     }
 }
 

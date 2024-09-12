@@ -191,8 +191,6 @@ impl<T: ?Sized, R: Relax> Mutex<T, R> {
     ///     mutex.lock_with_local(&NODE, |_guard| ());
     /// });
     /// ```
-    /// [`LocalMutexNode`]: LocalMutexNode
-    /// [`thread_local_node!`]: crate::thread_local_node
     #[inline]
     #[track_caller]
     pub fn lock_with_local<F, Ret>(&self, node: StaticNode, f: F) -> Ret
