@@ -28,7 +28,7 @@ use crate::cfg::thread;
 ///
 /// struct Spin;
 ///
-/// impl Relax for Spin {
+/// unsafe impl Relax for Spin {
 ///     #[inline(always)]
 ///     fn new() -> Self {
 ///         Self
@@ -40,7 +40,14 @@ use crate::cfg::thread;
 ///     }
 /// }
 /// ```
-pub trait Relax {
+///
+/// # Safety
+///
+/// All associated function implementations **must not** cause a thread exit,
+/// such as envoking a uncaught [`core::panic!`] call, or any other operation
+/// that will panic the thread. Exiting the thread will result in undefined
+/// behiavior.
+pub unsafe trait Relax {
     /// Returns the initial value for this relaxing strategy.
     fn new() -> Self;
 
@@ -66,7 +73,9 @@ pub trait Relax {
 /// [priority inversion]: https://matklad.github.io/2020/01/02/spinlocks-considered-harmful.html
 pub struct Spin;
 
-impl Relax for Spin {
+// SAFETY: None of the associated function implementations contain any code
+// that could cause a thread exit.
+unsafe impl Relax for Spin {
     #[inline(always)]
     fn new() -> Self {
         Self
@@ -89,8 +98,10 @@ impl Relax for Spin {
 #[cfg_attr(docsrs, doc(cfg(feature = "yield")))]
 pub struct Yield;
 
+// SAFETY: None of the associated function implementations contain any code
+// that could cause a thread exit.
 #[cfg(any(feature = "yield", test))]
-impl Relax for Yield {
+unsafe impl Relax for Yield {
     #[inline(always)]
     fn new() -> Self {
         Self
@@ -110,7 +121,9 @@ impl Relax for Yield {
 /// (i.e: this is a workaround for possible compiler bugs).
 pub struct Loop;
 
-impl Relax for Loop {
+// SAFETY: None of the associated function implementations contain any code
+// that could cause a thread exit.
+unsafe impl Relax for Loop {
     #[inline(always)]
     fn new() -> Self {
         Self
@@ -153,22 +166,40 @@ pub struct SpinBackoff {
 impl SpinBackoff {
     /// The largest value the inner backoff counter can reach.
     const MAX: Uint = 6;
+
+    /// The actual relax implementation.
+    fn relax_impl(&mut self) {
+        self.inner.saturating_spin();
+        self.inner.saturating_step();
+    }
 }
 
 // The maximum inner value **must** be smaller than Uint::BITS, or else the
-// bitshift operation will overflow, which is incorrect behavior.
+// bitshift operation will overflow, which is not only incorrect but it will
+// also result in UB when executed under `Relax::relax` on debug mode since it
+// will panic and exit the thread which is forbidded by `Relax`.
 const _: () = assert!(SpinBackoff::MAX < Uint::BITS);
 
-impl Relax for SpinBackoff {
+// SAFETY: The `new` function implementation does contain any code that could
+// could cause a thread exit. The `relax` function implementation is protected
+// with a process abort (under test with unwind on panic configuration) in case
+// an arithmetic operation overflow were to panic the thread.
+unsafe impl Relax for SpinBackoff {
     #[inline(always)]
     fn new() -> Self {
         Self { inner: Backoff::default() }
     }
 
+    #[cfg(not(all(test, panic = "unwind")))]
+    #[cfg(not(tarpaulin_include))]
     #[inline(always)]
     fn relax(&mut self) {
-        self.inner.saturating_spin();
-        self.inner.saturating_step();
+        self.relax_impl();
+    }
+
+    #[cfg(all(test, panic = "unwind"))]
+    fn relax(&mut self) {
+        Abort::on_unwind(|| self.relax_impl());
     }
 }
 
@@ -191,28 +222,46 @@ pub struct YieldBackoff {
 impl YieldBackoff {
     /// The largest value the inner backoff counter can reach.
     const MAX: Uint = SpinBackoff::MAX;
-}
 
-// The maximum inner value **must** be smaller than Uint::BITS, or else the
-// bitshift operation will overflow, which is incorrect behavior.
-#[cfg(any(feature = "yield", test))]
-const _: () = assert!(YieldBackoff::MAX < Uint::BITS);
-
-#[cfg(any(feature = "yield", test))]
-impl Relax for YieldBackoff {
-    #[inline(always)]
-    fn new() -> Self {
-        Self { inner: Backoff::default() }
-    }
-
-    #[inline(always)]
-    fn relax(&mut self) {
+    /// The actual relax implementation.
+    fn relax_impl(&mut self) {
         if self.inner.0 < Self::MAX {
             self.inner.wrapping_spin();
         } else {
             thread::yield_now();
         }
         self.inner.saturating_step();
+    }
+}
+
+// The maximum inner value **must** be smaller than Uint::BITS, or else the
+// bitshift operation will overflow, which is not only incorrect but it will
+// also result in UB when executed under `Relax::relax` on debug mode since it
+// will panic and exit the thread which is forbidded by `Relax`.
+#[cfg(any(feature = "yield", test))]
+const _: () = assert!(YieldBackoff::MAX < Uint::BITS);
+
+// SAFETY: The `new` function implementation does contain any code that could
+// could cause a thread exit. The `relax` function implementation is protected
+// with a process abort (under test with unwind on panic configuration) in case
+// an arithmetic operation overflow were to panic the thread.
+#[cfg(any(feature = "yield", test))]
+unsafe impl Relax for YieldBackoff {
+    #[inline(always)]
+    fn new() -> Self {
+        Self { inner: Backoff::default() }
+    }
+
+    #[cfg(not(all(test, panic = "unwind")))]
+    #[cfg(not(tarpaulin_include))]
+    #[inline(always)]
+    fn relax(&mut self) {
+        self.relax_impl();
+    }
+
+    #[cfg(all(test, panic = "unwind"))]
+    fn relax(&mut self) {
+        Abort::on_unwind(|| self.relax_impl());
     }
 }
 
@@ -252,6 +301,31 @@ impl<const MAX: Uint> Backoff<MAX> {
     }
 }
 
+/// A test only type that will abort the program execution once dropped.
+///
+/// To avoid aborting the proccess, callers must `forget` all instance of the
+/// `Abort` type.
+#[cfg(all(test, panic = "unwind"))]
+struct Abort;
+
+#[cfg(all(test, panic = "unwind"))]
+impl Abort {
+    /// Runs the closure, aborting the process if a unwinding panic occurs.
+    fn on_unwind<F: FnOnce()>(f: F) {
+        let abort = Abort;
+        f();
+        core::mem::forget(abort);
+    }
+}
+
+#[cfg(all(test, panic = "unwind"))]
+#[cfg(not(tarpaulin_include))]
+impl Drop for Abort {
+    fn drop(&mut self) {
+        panic!("thread exits are forbidden inside `relax`, aborting");
+    }
+}
+
 /// A generic relaxed waiter, that implements [`Relax`] so long as `R`
 /// implements it too.
 ///
@@ -263,7 +337,9 @@ pub(crate) struct RelaxWait<R> {
     waiter: R,
 }
 
-impl<R: Relax> Relax for RelaxWait<R> {
+// SAFETY: A generic type `R` that implements `Relax` guarantees that their
+// implementation fullfils the `Relax` safety contract.
+unsafe impl<R: Relax> Relax for RelaxWait<R> {
     fn new() -> Self {
         Self { waiter: R::new() }
     }
