@@ -191,10 +191,4 @@ pub mod thread {
 
     #[cfg(all(loom, test))]
     pub use loom::thread::yield_now;
-
-    #[cfg(all(feature = "thread_local", not(all(loom, test))))]
-    pub use std::thread::LocalKey;
-
-    #[cfg(all(feature = "thread_local", loom, test))]
-    pub use loom::thread::LocalKey;
 }
