@@ -47,7 +47,13 @@ pub trait Lock {
 
 /// The waiting policy that should be applied while the lock state has not
 /// reached some target state.
-pub trait Wait: Relax {}
+pub trait Wait {
+    /// The relax operation that will be excuted during lock waiting loops.
+    type LockRelax: Relax;
+
+    /// The relax operation that will be excuted during unlock waiting loops.
+    type UnlockRelax: Relax;
+}
 
 impl Lock for AtomicBool {
     #[cfg(not(all(loom, test)))]
@@ -73,9 +79,9 @@ impl Lock for AtomicBool {
     fn lock_wait_relaxed<W: Wait>(&self) {
         // Block the thread with a relaxed loop until the load returns `false`,
         // indicating that the lock was handed off to the current thread.
-        let mut relaxed_waiter = W::new();
+        let mut relax = W::LockRelax::new();
         while self.load(Relaxed) {
-            relaxed_waiter.relax();
+            relax.relax();
         }
     }
 
