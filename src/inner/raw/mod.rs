@@ -9,11 +9,6 @@ use crate::cfg::atomic::{fence, AtomicPtr, UnsyncLoad};
 use crate::cfg::cell::{Cell, CellNullMut, UnsafeCell, WithUnchecked};
 use crate::lock::{Lock, Wait};
 
-#[cfg(feature = "thread_local")]
-mod thread_local;
-#[cfg(feature = "thread_local")]
-pub use thread_local::LocalMutexNode;
-
 /// The heap allocated queue node, which is managed by the [`MutexNode`] type.
 #[derive(Debug)]
 struct MutexNodeInner<L> {
