@@ -4,7 +4,7 @@ An implementation of Craig and, indenpendently, Magnussen, Landin, and
 Hagersten queue lock for mutual exclusion, referred to as CLH lock.
 """
 name = "clhlock"
-version = "0.2.0-rc1"
+version = "0.2.0"
 edition = "2021"
 # NOTE: Rust 1.70 is required for `AtomicPtr::as_ptr`.
 rust-version = "1.70.0"
@@ -29,4 +29,4 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [lints.rust.unexpected_cfgs]
 level = "warn"
-check-cfg = ["cfg(tarpaulin)", "cfg(tarpaulin_include)", "cfg(loom)"]
+check-cfg = ["cfg(tarpaulin)", "cfg(tarpaulin_include)", "cfg(loom)", "cfg(ignore_leaks)"]

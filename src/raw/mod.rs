@@ -45,8 +45,8 @@ pub mod spins {
     /// use clhlock::raw::{spins::Mutex, MutexNode};
     ///
     /// let mutex = Mutex::new(0);
-    /// let mut node = MutexNode::new();
-    /// let guard = mutex.lock(&mut node);
+    /// let node = MutexNode::new();
+    /// let guard = mutex.lock(node);
     /// assert_eq!(*guard, 0);
     /// ```
     /// [`raw::Mutex`]: mutex::Mutex
@@ -74,8 +74,8 @@ pub mod spins {
         /// use clhlock::raw::{spins::backoff::Mutex, MutexNode};
         ///
         /// let mutex = Mutex::new(0);
-        /// let mut node = MutexNode::new();
-        /// let guard = mutex.lock(&mut node);
+        /// let node = MutexNode::new();
+        /// let guard = mutex.lock(node);
         /// assert_eq!(*guard, 0);
         /// ```
         /// [`raw::Mutex`]: mutex::Mutex
@@ -107,8 +107,8 @@ pub mod yields {
     /// use clhlock::raw::{yields::Mutex, MutexNode};
     ///
     /// let mutex = Mutex::new(0);
-    /// let mut node = MutexNode::new();
-    /// let guard = mutex.lock(&mut node);
+    /// let node = MutexNode::new();
+    /// let guard = mutex.lock(node);
     /// assert_eq!(*guard, 0);
     /// ```
     /// [`raw::Mutex`]: mutex::Mutex
@@ -136,8 +136,8 @@ pub mod yields {
         /// use clhlock::raw::{yields::backoff::Mutex, MutexNode};
         ///
         /// let mutex = Mutex::new(0);
-        /// let mut node = MutexNode::new();
-        /// let guard = mutex.lock(&mut node);
+        /// let node = MutexNode::new();
+        /// let guard = mutex.lock(node);
         /// assert_eq!(*guard, 0);
         /// ```
         /// [`raw::Mutex`]: mutex::Mutex
@@ -167,8 +167,8 @@ pub mod loops {
     /// use clhlock::raw::{loops::Mutex, MutexNode};
     ///
     /// let mutex = Mutex::new(0);
-    /// let mut node = MutexNode::new();
-    /// let guard = mutex.lock(&mut node);
+    /// let node = MutexNode::new();
+    /// let guard = mutex.lock(node);
     /// assert_eq!(*guard, 0);
     /// ```
     /// [`raw::Mutex`]: mutex::Mutex

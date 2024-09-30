@@ -11,7 +11,7 @@ default_to_workspace = false
 [tasks.no-std]
 command = "cargo"
 args = ["hack", "build", "--target", "thumbv7m-none-eabi", "--feature-powerset",
-        "--no-dev-deps", "--skip", "yield,thread_local"]
+        "--no-dev-deps", "--skip", "yield"]
 
 # Build docs for docs.rs.
 [tasks.docsrs]
@@ -62,6 +62,13 @@ toolchain = "nightly"
 install_crate = { rustup_component_name = "miri" }
 command = "cargo"
 args = ["miri", "nextest", "run", "--all-features", "${@}"]
+
+[tasks.miri-ignore-leaks]
+toolchain = "nightly"
+install_crate = { rustup_component_name = "miri" }
+command = "cargo"
+env = { "MIRIFLAGS" = "-Zmiri-ignore-leaks", "RUSTFLAGS" = "--cfg ignore_leaks" }
+args = ["miri", "test", "raw::mutex::test_leaks_expected"]
 
 # Check code coverage with tarpaulin (all features).
 [tasks.tarpaulin]

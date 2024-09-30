@@ -51,7 +51,7 @@ Or add a entry under the `[dependencies]` section in your `Cargo.toml`:
 
 [dependencies]
 # Available features: `yield`.
-clhlock = { version = "0.2.0-rc1", features = ["yield"] }
+clhlock = { version = "0.2", features = ["yield"] }
 ```
 
 ## Documentation
@@ -92,15 +92,15 @@ fn main() {
     let c_mutex = Arc::clone(&mutex);
 
     thread::spawn(move || {
-        // A queue node handle must be mutably accessible.
-        let mut node = MutexNode::new();
-        *c_mutex.lock(&mut node) = 10;
+        // A queue node handle must be consumed.
+        let node = MutexNode::new();
+        *c_mutex.lock(node) = 10;
     })
     .join().expect("thread::spawn failed");
 
-    // A queue node handle must be mutably accessible.
-    let mut node = MutexNode::new();
-    assert_eq!(*mutex.lock(&mut node), 10);
+    // A queue node handle must be consumed.
+    let node = MutexNode::new();
+    assert_eq!(*mutex.lock(node), 10);
 }
 ```
 

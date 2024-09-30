@@ -13,16 +13,17 @@ use crate::test::{LockNew, LockWith};
 ///
 /// `MutexNode` is an opaque type that holds metadata for the [`Mutex`]'s
 /// waiting queue. To acquire a CLH lock, an instance of queue node handle must
-/// be reachable and mutably borrowed for the duration of some associated
-/// [`MutexGuard`]. Once the guard is dropped, the node handle can be reused as
-/// the backing allocation for another lock acquisition. See the [`lock`] method
-/// on [`Mutex`].
+/// be consumed by the locking APIs to create a [`MutexGuard`] instance. Once
+/// the locking thread is done with its critical section, it may reacquire a
+/// node to reuse it as the backing allocation for another lock acquisition
+/// through the [`into_node`] method of a `MutexGuard`.
 ///
-/// The inner
+/// See the [`lock`] method on [`Mutex`] for more information.
 ///
 /// [`lock`]: Mutex::lock
-#[repr(transparent)]
+/// [`into_node`]: MutexGuard::into_node
 #[derive(Debug)]
+#[repr(transparent)]
 pub struct MutexNode {
     inner: inner::MutexNode<AtomicBool>,
 }
@@ -108,15 +109,15 @@ impl Default for MutexNode {
 /// for _ in 0..N {
 ///     let (data, tx) = (data.clone(), tx.clone());
 ///     thread::spawn(move || {
-///         // A queue node must be mutably accessible.
-///         let mut node = MutexNode::new();
+///         // A queue node must be consumed.
+///         let node = MutexNode::new();
 ///         // The shared state can only be accessed once the lock is held.
 ///         // Our non-atomic increment is safe because we're the only thread
 ///         // which can access the shared state when the lock is held.
 ///         //
 ///         // We unwrap() the return value to assert that we are not expecting
 ///         // threads to ever fail while holding the lock.
-///         let mut data = data.lock(&mut node);
+///         let mut data = data.lock(node);
 ///         *data += 1;
 ///         if *data == N {
 ///             tx.send(()).unwrap();
@@ -164,8 +165,8 @@ impl<T: ?Sized, R: Relax> Mutex<T, R> {
     /// held. An RAII guard is returned to allow scoped unlock of the lock. When
     /// the guard goes out of scope, the mutex will be unlocked.
     ///
-    /// To acquire a CLH lock through this function, it's also required a mutably
-    /// borrowed queue node, which is a record that keeps a link for forming the
+    /// To acquire a CLH lock through this function, it's also required to
+    /// consume queue node, which is a record that keeps a link for forming the
     /// queue, see [`MutexNode`].
     ///
     /// This function will block if the lock is unavailable.
@@ -185,17 +186,17 @@ impl<T: ?Sized, R: Relax> Mutex<T, R> {
     /// let c_mutex = Arc::clone(&mutex);
     ///
     /// thread::spawn(move || {
-    ///     let mut node = MutexNode::new();
-    ///     *c_mutex.lock(&mut node) = 10;
+    ///     let node = MutexNode::new();
+    ///     *c_mutex.lock(node) = 10;
     /// })
     /// .join().expect("thread::spawn failed");
     ///
-    /// let mut node = MutexNode::new();
-    /// assert_eq!(*mutex.lock(&mut node), 10);
+    /// let node = MutexNode::new();
+    /// assert_eq!(*mutex.lock(node), 10);
     /// ```
     #[inline]
-    pub fn lock<'a>(&'a self, node: &'a mut MutexNode) -> MutexGuard<'a, T, R> {
-        self.inner.lock(&mut node.inner).into()
+    pub fn lock<'a>(&'a self, node: MutexNode) -> MutexGuard<'a, T, R> {
+        self.inner.lock(node.inner).into()
     }
 
     /// Acquires this mutex and then runs the closure against its guard.
@@ -249,8 +250,8 @@ impl<T: ?Sized, R: Relax> Mutex<T, R> {
     where
         F: FnOnce(MutexGuard<'_, T, R>) -> Ret,
     {
-        let mut node = MutexNode::new();
-        f(self.lock(&mut node))
+        let node = MutexNode::new();
+        f(self.lock(node))
     }
 }
 
@@ -271,8 +272,8 @@ impl<T: ?Sized, R> Mutex<T, R> {
     /// let mut mutex = Mutex::new(0);
     /// *mutex.get_mut() = 10;
     ///
-    /// let mut node = MutexNode::new();
-    /// assert_eq!(*mutex.lock(&mut node), 10);
+    /// let node = MutexNode::new();
+    /// assert_eq!(*mutex.lock(node), 10);
     /// ```
     #[cfg(not(all(loom, test)))]
     #[inline(always)]
@@ -362,6 +363,32 @@ pub struct MutexGuard<'a, T: ?Sized, R> {
 // Same unsafe impls as `crate::inner::raw::MutexGuard`.
 unsafe impl<T: ?Sized + Send, R> Send for MutexGuard<'_, T, R> {}
 unsafe impl<T: ?Sized + Sync, R> Sync for MutexGuard<'_, T, R> {}
+
+impl<'a, T: ?Sized, R> MutexGuard<'a, T, R> {
+    /// Unlocks the guard and returns a node instance that can be reused by
+    /// another locking operation.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use clhlock::raw::{self, MutexNode};
+    /// use clhlock::relax::Spin;
+    ///
+    /// type Mutex<T> = raw::Mutex<T, Spin>;
+    ///
+    /// let mutex = Mutex::new(0);
+    /// let mut node = MutexNode::new();
+    ///
+    /// let mut guard = mutex.lock(node);
+    /// *guard += 1;
+    ///
+    /// node = guard.into_node();
+    /// assert_eq!(*mutex.lock(node), 1);
+    pub fn into_node(self) -> MutexNode {
+        let inner = self.inner.into_node();
+        MutexNode { inner }
+    }
+}
 
 #[doc(hidden)]
 impl<'a, T: ?Sized, R> From<inner::MutexGuard<'a, T, AtomicBool, RelaxWait<R>>>
@@ -475,6 +502,35 @@ mod test {
     #[test]
     fn test_lock_unsized() {
         tests::test_lock_unsized::<Mutex<_>>();
+    }
+}
+
+#[cfg(any(all(test, not(miri)), all(miri, ignore_leaks)))]
+mod test_leaks_expected {
+    use std::sync::mpsc::channel;
+    use std::sync::Arc;
+    use std::thread;
+
+    use crate::raw::{yields::Mutex, MutexNode};
+
+    #[test]
+    fn forget_guard_is_sound() {
+        let (tx1, rx1) = channel();
+        let (tx2, rx2) = channel();
+        let data = Arc::new(Mutex::new(0));
+        let handle = Arc::clone(&data);
+        let node = MutexNode::new();
+        let guard = data.lock(node);
+        thread::spawn(move || {
+            let _r = rx2.recv().unwrap();
+            let node = MutexNode::new();
+            let guard = handle.lock(node);
+            core::mem::forget(guard);
+            tx1.send(()).unwrap();
+        });
+        drop(guard);
+        tx2.send(()).unwrap();
+        let _r = rx1.recv();
     }
 }
 

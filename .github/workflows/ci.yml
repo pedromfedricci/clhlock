@@ -43,7 +43,7 @@ jobs:
           --target ${{ env.NO_STD_TARGET }}
           --no-dev-deps
           --feature-powerset
-          --skip yield,thread_local
+          --skip yield
 
   msrv:
     name: MSRV
@@ -166,6 +166,11 @@ jobs:
         uses: taiki-e/install-action@nextest
       - name: Miri test
         run: cargo miri nextest run --all-features
+      - name: Miri test ignore leaks
+        env:
+          MIRIFLAGS: "-Zmiri-ignore-leaks"
+          RUSTFLAGS: "--cfg ignore_leaks"
+        run: cargo miri test raw::mutex::test_leaks_expected
 
   loom:
     name: Loom

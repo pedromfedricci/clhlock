@@ -251,6 +251,9 @@ type Uint = u32;
 const DEFAULT_SHIFTS: Uint = 6;
 
 /// The default max number of shits the inner value of `Backoff` will produce.
+///
+/// For testing purposes, lets make this super small, else Miri runs will take
+/// far more time without much benefit.
 #[cfg(miri)]
 const DEFAULT_SHIFTS: Uint = 1;
 
