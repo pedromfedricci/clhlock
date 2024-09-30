@@ -50,25 +50,6 @@ impl MutexNode {
 }
 
 #[cfg(not(tarpaulin_include))]
-#[doc(hidden)]
-impl Deref for MutexNode {
-    type Target = inner::MutexNode<AtomicBool>;
-
-    #[inline(always)]
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-#[doc(hidden)]
-impl DerefMut for MutexNode {
-    #[inline(always)]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
-    }
-}
-
-#[cfg(not(tarpaulin_include))]
 impl Default for MutexNode {
     #[inline(always)]
     fn default() -> Self {
@@ -504,6 +485,17 @@ mod test {
     #[test]
     fn test_lock_unsized() {
         tests::test_lock_unsized::<Mutex<_>>();
+    }
+
+    #[test]
+    fn test_guard_into_node() {
+        use crate::raw::MutexNode;
+        let mutex = Mutex::new(0);
+        let mut node = MutexNode::new();
+        let mut guard = mutex.lock(node);
+        *guard += 1;
+        node = guard.into_node();
+        assert_eq!(*mutex.lock(node), 1);
     }
 }
 
