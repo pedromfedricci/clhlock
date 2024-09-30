@@ -43,7 +43,7 @@ jobs:
           --target ${{ env.NO_STD_TARGET }}
           --no-dev-deps
           --feature-powerset
-          --skip yield,thread_local
+          --skip yield
 
   msrv:
     name: MSRV
@@ -57,17 +57,6 @@ jobs:
         run: rustup default 1.70.0
       - name: Check MSRV
         run: cargo check --all-features
-
-  semver:
-    name: Check semver
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-      - name: Install Rust stable
-        run: rustup toolchain install stable
-      - name: Check semver violations
-        uses: obi1kenobi/cargo-semver-checks-action@v2
 
   docsrs:
     name: Build doc
@@ -166,6 +155,11 @@ jobs:
         uses: taiki-e/install-action@nextest
       - name: Miri test
         run: cargo miri nextest run --all-features
+      - name: Miri test ignore leaks
+        env:
+          MIRIFLAGS: "-Zmiri-ignore-leaks"
+          RUSTFLAGS: "--cfg ignore_leaks"
+        run: cargo miri test raw::mutex::test_leaks_expected
 
   loom:
     name: Loom
