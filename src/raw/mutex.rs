@@ -195,7 +195,7 @@ impl<T: ?Sized, R: Relax> Mutex<T, R> {
     /// assert_eq!(*mutex.lock(node), 10);
     /// ```
     #[inline]
-    pub fn lock<'a>(&'a self, node: MutexNode) -> MutexGuard<'a, T, R> {
+    pub fn lock(&self, node: MutexNode) -> MutexGuard<'_, T, R> {
         self.inner.lock(node.inner).into()
     }
 
@@ -384,6 +384,8 @@ impl<'a, T: ?Sized, R> MutexGuard<'a, T, R> {
     ///
     /// node = guard.into_node();
     /// assert_eq!(*mutex.lock(node), 1);
+    #[must_use]
+    #[inline]
     pub fn into_node(self) -> MutexNode {
         let inner = self.inner.into_node();
         MutexNode { inner }
@@ -505,7 +507,7 @@ mod test {
     }
 }
 
-#[cfg(any(all(test, not(miri)), all(miri, ignore_leaks)))]
+#[cfg(all(not(all(loom, test)), any(all(test, not(miri)), all(miri, ignore_leaks))))]
 mod test_leaks_expected {
     use std::sync::mpsc::channel;
     use std::sync::Arc;

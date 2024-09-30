@@ -246,7 +246,7 @@ unsafe impl<T: ?Sized + Sync, L: Lock, W> Sync for MutexGuard<'_, T, L, W> {}
 
 impl<'a, T: ?Sized, L: Lock, W> MutexGuard<'a, T, L, W> {
     /// Creates a new `MutexGuard` instance.
-    fn new(lock: &'a Mutex<T, L, W>, head: MutexNode<L>) -> Self {
+    const fn new(lock: &'a Mutex<T, L, W>, head: MutexNode<L>) -> Self {
         Self { lock, head }
     }
 
@@ -263,6 +263,7 @@ impl<'a, T: ?Sized, L: Lock, W> MutexGuard<'a, T, L, W> {
     /// another locking operation.
     ///
     /// Consumes the guard without calling `drop`.
+    #[must_use]
     pub fn into_node(mut self) -> MutexNode<L> {
         // SAFETY: We are only ever calling unlock once, since we "forget" the
         // guard, therefore the guard's `drop` call will not be called.
