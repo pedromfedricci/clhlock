@@ -1,5 +1,4 @@
 use core::fmt::{self, Debug, Display, Formatter};
-use core::ops::{Deref, DerefMut};
 
 use crate::cfg::atomic::AtomicBool;
 use crate::inner::raw as inner;
@@ -396,7 +395,7 @@ impl<'a, T: ?Sized + Display, R> Display for MutexGuard<'a, T, R> {
 }
 
 #[cfg(not(all(loom, test)))]
-impl<'a, T: ?Sized, R> Deref for MutexGuard<'a, T, R> {
+impl<'a, T: ?Sized, R> core::ops::Deref for MutexGuard<'a, T, R> {
     type Target = T;
 
     /// Dereferences the guard to access the underlying data.
@@ -407,7 +406,7 @@ impl<'a, T: ?Sized, R> Deref for MutexGuard<'a, T, R> {
 }
 
 #[cfg(not(all(loom, test)))]
-impl<'a, T: ?Sized, R> DerefMut for MutexGuard<'a, T, R> {
+impl<'a, T: ?Sized, R> core::ops::DerefMut for MutexGuard<'a, T, R> {
     /// Mutably dereferences the guard to access the underlying data.
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut T {
