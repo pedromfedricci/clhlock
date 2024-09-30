@@ -18,7 +18,7 @@ properties of this mechanism are:
 - works equally well (requiring only O(1) network transactions per lock
   acquisition) on machines with and without coherent caches.
 - avoids the "handshake" runtime overhead between the lock holder and
-  its successor during lock release.
+  its successor during lock hand-off.
 
 This algorithm was indenpendently introduced by [Craig] and
 [Magnussen, Landin, and Hagersten] papers.
@@ -69,15 +69,15 @@ Queue nodes are allocated in the heap, and their ownership is transparently
 moved from the lock holding thread to its successor. Allocating the nodes in
 the stack is not allowed since the CLH lock protocol does not guarantee that
 a predecessor thread will be live by the time a successor access its
-associated locking node. Locking operations require exclusive access to local
-node handles that own the heap allocations. Therefore, this crate requires
+associated locking node. Locking operations require taking ownership over
+node handles that manage the heap allocations. Therefore, this crate requires
 linking with Rust's core [alloc] library.
 
 ## Locking with a raw CLH spinlock
 
-This implementation operates under FIFO. Raw locking APIs require exclusive
-access to a locally accessible handle to a heap allocated queue node. This
-node handle is represented by the [`raw::MutexNode`] type. This implementation
+This implementation operates under FIFO. Raw locking APIs require taking
+ownership over a node handles that manage the heap allocated queue node. These
+node handle are represented by the [`raw::MutexNode`] type. This implementation
 is `no_std` compatible. See the [`raw`] module for more information.
 
 ```rust
