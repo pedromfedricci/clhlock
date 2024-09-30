@@ -524,7 +524,7 @@ mod test_leaks_expected {
         let node = MutexNode::new();
         let guard = data.lock(node);
         thread::spawn(move || {
-            let _r = rx2.recv().unwrap();
+            rx2.recv().unwrap();
             let node = MutexNode::new();
             let guard = handle.lock(node);
             core::mem::forget(guard);
@@ -532,7 +532,7 @@ mod test_leaks_expected {
         });
         drop(guard);
         tx2.send(()).unwrap();
-        let _r = rx1.recv();
+        rx1.recv().unwrap();
     }
 }
 
