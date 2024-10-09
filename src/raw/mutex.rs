@@ -15,12 +15,12 @@ use crate::test::{LockNew, LockWith};
 /// be consumed by the locking APIs to create a [`MutexGuard`] instance. Once
 /// the locking thread is done with its critical section, it may reacquire a
 /// node to reuse it as the backing allocation for another lock acquisition
-/// through the [`into_node`] method of a `MutexGuard`.
+/// through the [`unlock`] method of a `MutexGuard`.
 ///
 /// See the [`lock`] method on [`Mutex`] for more information.
 ///
 /// [`lock`]: Mutex::lock
-/// [`into_node`]: MutexGuard::into_node
+/// [`unlock`]: MutexGuard::unlock
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct MutexNode {
@@ -345,7 +345,7 @@ unsafe impl<T: ?Sized + Send, R> Send for MutexGuard<'_, T, R> {}
 unsafe impl<T: ?Sized + Sync, R> Sync for MutexGuard<'_, T, R> {}
 
 impl<'a, T: ?Sized, R> MutexGuard<'a, T, R> {
-    /// Unlocks the guard and returns a node instance that can be reused by
+    /// Unlocks the mutex and returns a node instance that can be reused by
     /// another locking operation.
     ///
     /// # Example
@@ -362,11 +362,11 @@ impl<'a, T: ?Sized, R> MutexGuard<'a, T, R> {
     /// let mut guard = mutex.lock(node);
     /// *guard += 1;
     ///
-    /// node = guard.into_node();
+    /// node = guard.unlock();
     /// assert_eq!(*mutex.lock(node), 1);
     #[must_use]
     #[inline]
-    pub fn into_node(self) -> MutexNode {
+    pub fn unlock(self) -> MutexNode {
         let inner = self.inner.into_node();
         MutexNode { inner }
     }
@@ -493,7 +493,7 @@ mod test {
         let mut node = MutexNode::new();
         let mut guard = mutex.lock(node);
         *guard += 1;
-        node = guard.into_node();
+        node = guard.unlock();
         assert_eq!(*mutex.lock(node), 1);
     }
 }

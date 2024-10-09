@@ -259,7 +259,7 @@ impl<'a, T: ?Sized, L: Lock, W> MutexGuard<'a, T, L, W> {
         unsafe { self.lock.data.with_unchecked(f) }
     }
 
-    /// Unlocks the guard and returns a node instance that can be reused by
+    /// Unlocks the mutex and returns a node instance that can be reused by
     /// another locking operation.
     ///
     /// Consumes the guard without calling `drop`.
