@@ -186,8 +186,7 @@ impl<T: ?Sized, R: Relax> Mutex<T, R> {
     /// [`lock_with`]: Mutex::lock_with
     #[inline]
     pub fn lock(&self) -> MutexGuard<'_, T, R> {
-        let node = MutexNode::new();
-        self.lock_with(node)
+        self.lock_with(MutexNode::new())
     }
 
     /// Acquires this mutex, blocking the current thread until it is able to do so.
@@ -282,8 +281,7 @@ impl<T: ?Sized, R: Relax> Mutex<T, R> {
     where
         F: FnOnce(MutexGuard<'_, T, R>) -> Ret,
     {
-        let node = MutexNode::new();
-        f(self.lock_with(node))
+        self.lock_with_then(MutexNode::new(), f)
     }
 
     /// Acquires this mutex and then runs the closure against the proteced data.
@@ -623,12 +621,10 @@ mod test {
 
     #[test]
     fn test_guard_into_node() {
-        use crate::raw::MutexNode;
         let mutex = Mutex::new(0);
-        let mut node = MutexNode::new();
-        let mut guard = mutex.lock_with(node);
+        let mut guard = mutex.lock();
         *guard += 1;
-        node = guard.unlock();
+        let node = guard.unlock();
         assert_eq!(*mutex.lock_with(node), 1);
     }
 }
