@@ -14,14 +14,13 @@
 
 //! Strategies that determine the behaviour of locks when encountering contention.
 
-use core::marker::PhantomData;
-
 use crate::cfg::debug_abort;
 use crate::cfg::hint;
-use crate::lock::Wait;
 
 #[cfg(any(feature = "yield", test))]
 use crate::cfg::thread;
+
+pub(crate) use wait::RelaxWait;
 
 /// A trait implemented by spinning relax strategies.
 ///
@@ -246,11 +245,11 @@ impl RelaxImpl for YieldBackoff {
 /// use this same type as the right-hand and lef-hand side types.
 type Uint = u32;
 
-/// The default max number of shits the inner value of `Backoff` will produce.
+/// The default max number of shifts the inner value of `Backoff` will produce.
 #[cfg(not(miri))]
 const DEFAULT_SHIFTS: Uint = 6;
 
-/// The default max number of shits the inner value of `Backoff` will produce.
+/// The default max number of shifts the inner value of `Backoff` will produce.
 ///
 /// For testing purposes, lets make this super small, else Miri runs will take
 /// far more time without much benefit.
@@ -305,18 +304,25 @@ impl<const MAX: Uint> Backoff<MAX> {
     }
 }
 
-/// A generic relaxed waiter, that implements [`Relax`] so long as `R`
-/// implements it too.
-///
-/// This saves us from defining a blanket [`Wait`] impl for a generic `T` where
-/// `T` implements [`Relax`], because that would prevent us from implementing
-/// `Wait` for `T` when it implements [`Park`], since they would conflict. We
-/// need both `Relax` and `Park` types to implement `Wait`.
-pub(crate) struct RelaxWait<R>(PhantomData<R>);
+mod wait {
+    use core::marker::PhantomData;
 
-impl<R: Relax> Wait for RelaxWait<R> {
-    type LockRelax = R;
-    type UnlockRelax = R;
+    use crate::lock::Wait;
+    use crate::relax::Relax;
+
+    /// A generic relaxed waiter, that implements [`Relax`] so long as `R`
+    /// implements it too.
+    ///
+    /// This saves us from defining a blanket [`Wait`] impl for a generic `T` where
+    /// `T` implements [`Relax`], because that would prevent us from implementing
+    /// `Wait` for `T` when it implements [`Park`], since they would conflict. We
+    /// need both `Relax` and `Park` types to implement `Wait`.
+    pub struct RelaxWait<R>(PhantomData<R>);
+
+    impl<R: Relax> Wait for RelaxWait<R> {
+        type LockRelax = R;
+        type UnlockRelax = R;
+    }
 }
 
 #[cfg(all(not(loom), test))]

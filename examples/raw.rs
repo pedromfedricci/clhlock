@@ -26,7 +26,7 @@ fn main() {
             //
             // We unwrap() the return value to assert that we are not expecting
             // threads to ever fail while holding the lock.
-            let mut guard = data.lock(node);
+            let mut guard = data.lock_with(node);
             *guard += 1;
             if *guard == N {
                 tx.send(()).unwrap();
@@ -38,7 +38,7 @@ fn main() {
 
     // A queue node must be consumed.
     let node = MutexNode::new();
-    let count = data.lock(node);
+    let count = data.lock_with(node);
     assert_eq!(*count, N);
     // lock is unlock here when `count` goes out of scope.
 }

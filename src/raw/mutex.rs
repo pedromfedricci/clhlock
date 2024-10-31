@@ -5,7 +5,15 @@ use crate::inner::raw as inner;
 use crate::relax::{Relax, RelaxWait};
 
 #[cfg(test)]
-use crate::test::{LockNew, LockWith};
+use crate::test::{LockNew, LockThen};
+
+#[cfg(all(loom, test))]
+use crate::loom::{Guard, GuardDeref, GuardDerefMut};
+#[cfg(all(loom, test))]
+use crate::test::{AsDeref, AsDerefMut};
+
+// The inner type of mutex, with a boolean as the atomic data.
+type MutexInner<T, R> = inner::Mutex<T, AtomicBool, RelaxWait<R>>;
 
 /// A locally-accessible handle to a heap allocated node for forming
 /// waiting queue.
@@ -14,12 +22,12 @@ use crate::test::{LockNew, LockWith};
 /// waiting queue. To acquire a CLH lock, an instance of queue node handle must
 /// be consumed by the locking APIs to create a [`MutexGuard`] instance. Once
 /// the locking thread is done with its critical section, it may reacquire a
-/// node to reuse it as the backing allocation for another lock acquisition
+/// node and reuse it as the backing allocation for another lock acquisition
 /// through the [`unlock`] method of a `MutexGuard`.
 ///
-/// See the [`lock`] method on [`Mutex`] for more information.
+/// See the [`lock_with`] method on [`Mutex`] for more information.
 ///
-/// [`lock`]: Mutex::lock
+/// [`lock_with`]: Mutex::lock_with
 /// [`unlock`]: MutexGuard::unlock
 #[derive(Debug)]
 #[repr(transparent)]
@@ -61,8 +69,9 @@ impl Default for MutexNode {
 /// This mutex will block threads waiting for the lock to become available. The
 /// mutex can created via a [`new`] constructor. Each mutex has a type parameter
 /// which represents the data that it is protecting. The data can only be accessed
-/// through the RAII guards returned by the [`lock`] method, which guarantees
-/// that the data is only ever accessed when the mutex is locked.
+/// through the RAII guards returned by the [`lock`]  and [`lock_with`] methods,
+/// but also as the closure parameter for [`lock_with_then`] method, which
+/// guarantees that the data is only ever accessed when the mutex is locked.
 ///
 /// # Examples
 ///
@@ -97,7 +106,7 @@ impl Default for MutexNode {
 ///         //
 ///         // We unwrap() the return value to assert that we are not expecting
 ///         // threads to ever fail while holding the lock.
-///         let mut data = data.lock(node);
+///         let mut data = data.lock_with(node);
 ///         *data += 1;
 ///         if *data == N {
 ///             tx.send(()).unwrap();
@@ -110,8 +119,10 @@ impl Default for MutexNode {
 /// ```
 /// [`new`]: Mutex::new
 /// [`lock`]: Mutex::lock
+/// [`lock_with`]: Mutex::lock_with
+/// [`lock_with_then`]: Mutex::lock_with_then
 pub struct Mutex<T: ?Sized, R> {
-    pub(super) inner: inner::Mutex<T, AtomicBool, RelaxWait<R>>,
+    pub(super) inner: MutexInner<T, R>,
 }
 
 // Same unsafe impls as `crate::inner::raw::Mutex`.
@@ -145,6 +156,47 @@ impl<T: ?Sized, R: Relax> Mutex<T, R> {
     /// held. An RAII guard is returned to allow scoped unlock of the lock. When
     /// the guard goes out of scope, the mutex will be unlocked.
     ///
+    /// This function transparently allocates a [`MutexNode`] in the stack for
+    /// each call, and so it will not reuse the same node for other calls.
+    /// Consider callig [`lock_with`] if you want to reuse node allocations.
+    ///
+    /// This function will block if the lock is unavailable.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use std::thread;
+    ///
+    /// use clhlock::raw;
+    /// use clhlock::relax::Spin;
+    ///
+    /// type Mutex<T> = raw::Mutex<T, Spin>;
+    ///
+    /// let mutex = Arc::new(Mutex::new(0));
+    /// let c_mutex = Arc::clone(&mutex);
+    ///
+    /// thread::spawn(move || {
+    ///     *c_mutex.lock() = 10;
+    /// })
+    /// .join().expect("thread::spawn failed");
+    ///
+    /// assert_eq!(*mutex.lock(), 10);
+    /// ```
+    /// [`lock_with`]: Mutex::lock_with
+    #[inline]
+    pub fn lock(&self) -> MutexGuard<'_, T, R> {
+        let node = MutexNode::new();
+        self.lock_with(node)
+    }
+
+    /// Acquires this mutex, blocking the current thread until it is able to do so.
+    ///
+    /// This function will block the local thread until it is available to acquire
+    /// the mutex. Upon returning, the thread is the only thread with the lock
+    /// held. An RAII guard is returned to allow scoped unlock of the lock. When
+    /// the guard goes out of scope, the mutex will be unlocked.
+    ///
     /// To acquire a CLH lock through this function, it's also required to
     /// consume queue node, which is a record that keeps a link for forming the
     /// queue, see [`MutexNode`].
@@ -167,16 +219,16 @@ impl<T: ?Sized, R: Relax> Mutex<T, R> {
     ///
     /// thread::spawn(move || {
     ///     let node = MutexNode::new();
-    ///     *c_mutex.lock(node) = 10;
+    ///     *c_mutex.lock_with(node) = 10;
     /// })
     /// .join().expect("thread::spawn failed");
     ///
     /// let node = MutexNode::new();
-    /// assert_eq!(*mutex.lock(node), 10);
+    /// assert_eq!(*mutex.lock_with(node), 10);
     /// ```
     #[inline]
-    pub fn lock(&self, node: MutexNode) -> MutexGuard<'_, T, R> {
-        self.inner.lock(node.inner).into()
+    pub fn lock_with(&self, node: MutexNode) -> MutexGuard<'_, T, R> {
+        self.inner.lock_with(node.inner).into()
     }
 
     /// Acquires this mutex and then runs the closure against its guard.
@@ -186,10 +238,10 @@ impl<T: ?Sized, R: Relax> Mutex<T, R> {
     /// executed against the mutex guard. Once the guard goes out of scope, it
     /// will unlock the mutex.
     ///
-    /// This function instantiates a [`MutexNode`] for each call, which is
-    /// convenient for one-liners by not particularly efficient on hot paths.
-    /// If that is your use case, consider calling [`lock`] in the busy loop
-    /// while reusing one single node allocation.
+    /// This function transparently allocates a [`MutexNode`] in the stack for
+    /// each call, and so it will not reuse the same node for other calls.
+    /// Consider callig [`lock_with_then`] if you want to reuse node
+    /// allocations.
     ///
     /// This function will block if the lock is unavailable.
     ///
@@ -208,11 +260,11 @@ impl<T: ?Sized, R: Relax> Mutex<T, R> {
     /// let c_mutex = Arc::clone(&mutex);
     ///
     /// thread::spawn(move || {
-    ///     c_mutex.lock_with(|mut guard| *guard = 10);
+    ///     c_mutex.lock_then(|mut guard| *guard = 10);
     /// })
     /// .join().expect("thread::spawn failed");
     ///
-    /// assert_eq!(mutex.lock_with(|guard| *guard), 10);
+    /// assert_eq!(mutex.lock_then(|guard| *guard), 10);
     /// ```
     ///
     /// Compile fail: borrows of the guard or its data cannot escape the given
@@ -222,16 +274,70 @@ impl<T: ?Sized, R: Relax> Mutex<T, R> {
     /// use clhlock::raw::spins::Mutex;
     ///
     /// let mutex = Mutex::new(1);
-    /// let data = mutex.lock_with(|guard| &*guard);
+    /// let data = mutex.lock_then(|guard| &*guard);
     /// ```
-    /// [`lock`]: Mutex::lock
+    /// [`lock_with_then`]: Mutex::lock_with_then
     #[inline]
-    pub fn lock_with<F, Ret>(&self, f: F) -> Ret
+    pub fn lock_then<F, Ret>(&self, f: F) -> Ret
     where
         F: FnOnce(MutexGuard<'_, T, R>) -> Ret,
     {
         let node = MutexNode::new();
-        f(self.lock(node))
+        f(self.lock_with(node))
+    }
+
+    /// Acquires this mutex and then runs the closure against the proteced data.
+    ///
+    /// This function will block the local thread until it is available to acquire
+    /// the mutex. Upon acquiring the mutex, the user provided closure will be
+    /// executed against the mutex proteced data. Once the closure goes out of
+    /// scope, it will unlock the mutex.
+    ///
+    /// To acquire a CLH lock through this function, it's also required to
+    /// consume queue node, which is a record that keeps a link for forming the
+    /// queue, see [`MutexNode`].
+    ///
+    /// This function will block if the lock is unavailable.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use std::thread;
+    ///
+    /// use clhlock::raw::{self, MutexNode};
+    /// use clhlock::relax::Spin;
+    ///
+    /// type Mutex<T> = raw::Mutex<T, Spin>;
+    ///
+    /// let mutex = Arc::new(Mutex::new(0));
+    /// let c_mutex = Arc::clone(&mutex);
+    ///
+    /// thread::spawn(move || {
+    ///     let node = MutexNode::new();
+    ///     c_mutex.lock_with_then(node, |mut data| *data = 10);
+    /// })
+    /// .join().expect("thread::spawn failed");
+    ///
+    /// let node = MutexNode::new();
+    /// assert_eq!(mutex.lock_with_then(node, |data| *data), 10);
+    /// ```
+    ///
+    /// Compile fail: borrows of the data cannot escape the given closure:
+    ///
+    /// ```compile_fail,E0515
+    /// use clhlock::raw::{spins::Mutex, MutexNode};
+    ///
+    /// let mutex = Mutex::new(1);
+    /// let node = MutexNode::new();
+    /// let borrow = mutex.lock_with_then(node, |data| &*data);
+    /// ```
+    #[inline]
+    pub fn lock_with_then<F, Ret>(&self, node: MutexNode, f: F) -> Ret
+    where
+        F: FnOnce(MutexGuard<'_, T, R>) -> Ret,
+    {
+        f(self.lock_with(node))
     }
 }
 
@@ -253,7 +359,7 @@ impl<T: ?Sized, R> Mutex<T, R> {
     /// *mutex.get_mut() = 10;
     ///
     /// let node = MutexNode::new();
-    /// assert_eq!(*mutex.lock(node), 10);
+    /// assert_eq!(*mutex.lock_with(node), 10);
     /// ```
     #[cfg(not(all(loom, test)))]
     #[inline(always)]
@@ -301,17 +407,17 @@ impl<T: ?Sized, R> LockNew for Mutex<T, R> {
 }
 
 #[cfg(test)]
-impl<T: ?Sized, R: Relax> LockWith for Mutex<T, R> {
+impl<T: ?Sized, R: Relax> LockThen for Mutex<T, R> {
     type Guard<'a> = MutexGuard<'a, Self::Target, R>
     where
         Self: 'a,
         Self::Target: 'a;
 
-    fn lock_with<F, Ret>(&self, f: F) -> Ret
+    fn lock_then<F, Ret>(&self, f: F) -> Ret
     where
         F: FnOnce(MutexGuard<'_, T, R>) -> Ret,
     {
-        self.lock_with(f)
+        self.lock_then(f)
     }
 }
 
@@ -321,6 +427,9 @@ impl<T: ?Sized, R> crate::test::LockData for Mutex<T, R> {
         self.get_mut()
     }
 }
+
+// The inner type of mutex's guard, with a boolean as the atomic data.
+type GuardInner<'a, T, R> = inner::MutexGuard<'a, T, AtomicBool, RelaxWait<R>>;
 
 /// An RAII implementation of a "scoped lock" of a mutex. When this structure is
 /// dropped (falls out of scope), the lock will be unlocked.
@@ -337,7 +446,7 @@ impl<T: ?Sized, R> crate::test::LockData for Mutex<T, R> {
 /// [`lock_with`]: Mutex::lock_with
 #[must_use = "if unused the Mutex will immediately unlock"]
 pub struct MutexGuard<'a, T: ?Sized, R> {
-    inner: inner::MutexGuard<'a, T, AtomicBool, RelaxWait<R>>,
+    inner: GuardInner<'a, T, R>,
 }
 
 // Same unsafe impls as `crate::inner::raw::MutexGuard`.
@@ -359,11 +468,11 @@ impl<'a, T: ?Sized, R> MutexGuard<'a, T, R> {
     /// let mutex = Mutex::new(0);
     /// let mut node = MutexNode::new();
     ///
-    /// let mut guard = mutex.lock(node);
+    /// let mut guard = mutex.lock_with(node);
     /// *guard += 1;
     ///
     /// node = guard.unlock();
-    /// assert_eq!(*mutex.lock(node), 1);
+    /// assert_eq!(*mutex.lock_with(node), 1);
     #[must_use]
     #[inline]
     pub fn unlock(self) -> MutexNode {
@@ -373,11 +482,9 @@ impl<'a, T: ?Sized, R> MutexGuard<'a, T, R> {
 }
 
 #[doc(hidden)]
-impl<'a, T: ?Sized, R> From<inner::MutexGuard<'a, T, AtomicBool, RelaxWait<R>>>
-    for MutexGuard<'a, T, R>
-{
+impl<'a, T: ?Sized, R> From<GuardInner<'a, T, R>> for MutexGuard<'a, T, R> {
     #[inline(always)]
-    fn from(inner: inner::MutexGuard<'a, T, AtomicBool, RelaxWait<R>>) -> Self {
+    fn from(inner: GuardInner<'a, T, R>) -> Self {
         Self { inner }
     }
 }
@@ -423,6 +530,34 @@ unsafe impl<T: ?Sized, R> crate::loom::Guard for MutexGuard<'_, T, R> {
 
     fn get(&self) -> &loom::cell::UnsafeCell<Self::Target> {
         self.inner.get()
+    }
+}
+
+#[cfg(all(loom, test))]
+#[cfg(not(tarpaulin_include))]
+impl<T: ?Sized, R> AsDeref for MutexGuard<'_, T, R> {
+    type Target = T;
+
+    type Deref<'a> = GuardDeref<'a, Self>
+    where
+        Self: 'a,
+        Self::Target: 'a;
+
+    fn as_deref(&self) -> Self::Deref<'_> {
+        self.get_ref()
+    }
+}
+
+#[cfg(all(loom, test))]
+#[cfg(not(tarpaulin_include))]
+impl<T: ?Sized, R> AsDerefMut for MutexGuard<'_, T, R> {
+    type DerefMut<'a> = GuardDerefMut<'a, Self>
+    where
+        Self: 'a,
+        Self::Target: 'a;
+
+    fn as_deref_mut(&mut self) -> Self::DerefMut<'_> {
+        self.get_mut()
     }
 }
 
@@ -491,39 +626,56 @@ mod test {
         use crate::raw::MutexNode;
         let mutex = Mutex::new(0);
         let mut node = MutexNode::new();
-        let mut guard = mutex.lock(node);
+        let mut guard = mutex.lock_with(node);
         *guard += 1;
         node = guard.unlock();
-        assert_eq!(*mutex.lock(node), 1);
+        assert_eq!(*mutex.lock_with(node), 1);
     }
 }
 
-#[cfg(all(not(all(loom, test)), any(all(test, not(miri)), all(miri, ignore_leaks))))]
+#[cfg(any(all(test, not(miri), not(loom)), all(miri, ignore_leaks)))]
 mod test_leaks_expected {
     use std::sync::mpsc::channel;
     use std::sync::Arc;
     use std::thread;
 
-    use crate::raw::{yields::Mutex, MutexNode};
+    use crate::raw::yields::{Mutex, MutexGuard};
+    use crate::raw::MutexNode;
 
-    #[test]
-    fn forget_guard_is_sound() {
+    fn assert_forget_guard<T, F>(f: F)
+    where
+        F: FnOnce(MutexGuard<i32>) -> T,
+    {
         let (tx1, rx1) = channel();
         let (tx2, rx2) = channel();
         let data = Arc::new(Mutex::new(0));
         let handle = Arc::clone(&data);
         let node = MutexNode::new();
-        let guard = data.lock(node);
+        let guard = data.lock_with(node);
         thread::spawn(move || {
             rx2.recv().unwrap();
             let node = MutexNode::new();
-            let guard = handle.lock(node);
+            let guard = handle.lock_with(node);
             core::mem::forget(guard);
             tx1.send(()).unwrap();
         });
-        drop(guard);
+        let _t = f(guard);
         tx2.send(()).unwrap();
         rx1.recv().unwrap();
+        // NOTE: deadlocks.
+        // let guard = data.lock();
+        // assert_eq!(*guard, 0);
+    }
+
+    #[test]
+    fn test_forget_guard_drop_predecessor() {
+        assert_forget_guard(|guard| drop(guard));
+    }
+
+    #[test]
+    #[allow(clippy::redundant_closure_for_method_calls)]
+    fn test_foget_guard_unlock_predecessor() {
+        assert_forget_guard(|guard| guard.unlock());
     }
 }
 

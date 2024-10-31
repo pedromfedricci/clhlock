@@ -6,7 +6,7 @@ use core::ptr::NonNull;
 use core::sync::atomic::Ordering::{AcqRel, Acquire};
 
 use crate::cfg::atomic::{fence, AtomicPtr, UnsyncLoad};
-use crate::cfg::cell::{Cell, CellNullMut, UnsafeCell, WithUnchecked};
+use crate::cfg::cell::{Cell, CellNullMut, UnsafeCell, UnsafeCellWith};
 use crate::lock::{Lock, Wait};
 
 /// The heap allocated queue node, which is managed by the [`MutexNode`] type.
@@ -17,7 +17,7 @@ struct MutexNodeInner<L> {
 }
 
 impl<L: Lock> MutexNodeInner<L> {
-    /// Creates a new, locked `MutexNodeInner` instance.
+    /// Creates a new, locked and core based inner node (const).
     #[cfg(not(all(loom, test)))]
     const fn locked() -> Self {
         let prev = Cell::NULL_MUT;
@@ -25,7 +25,7 @@ impl<L: Lock> MutexNodeInner<L> {
         Self { prev, lock }
     }
 
-    /// Creates a new, locked, Loom based `MutexNodeInner` instance (non-const).
+    /// Creates a new, locked and loom based inner node (non-const).
     #[cfg(all(loom, test))]
     #[cfg(not(tarpaulin_include))]
     fn locked() -> Self {
@@ -34,7 +34,7 @@ impl<L: Lock> MutexNodeInner<L> {
         Self { prev, lock }
     }
 
-    /// Creates a new, unlocked `MutexNodeInner` instance.
+    /// Creates a new, unlocked and core based inner node (const).
     #[cfg(not(all(loom, test)))]
     const fn unlocked() -> Self {
         let prev = Cell::NULL_MUT;
@@ -42,7 +42,7 @@ impl<L: Lock> MutexNodeInner<L> {
         Self { prev, lock }
     }
 
-    /// Creates a new, unlocked, Loom based `MutexNodeInner` instance (non-const).
+    /// Creates a new, unlocked and loom based inner node (non-const).
     #[cfg(all(loom, test))]
     #[cfg(not(tarpaulin_include))]
     fn unlocked() -> Self {
@@ -65,7 +65,7 @@ impl<L: Lock> MutexNodeInner<L> {
     }
 }
 
-/// A pointer type that points to a heap allocated queue node.
+/// A owning pointer that manages the heap allocated queue node.
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct MutexNode<L> {
@@ -77,9 +77,9 @@ unsafe impl<L> Send for MutexNode<L> {}
 unsafe impl<L> Sync for MutexNode<L> {}
 
 impl<L> MutexNode<L> {
-    /// Creates a new `MuexNode` intance from a raw pointer.
+    /// Creates a new `MutexNode` instance from a raw pointer.
     ///
-    /// # SAFETY
+    /// # Safety
     ///
     /// The pointer is required to be non-null, it must have been allocated
     /// with the [memory layout] used by Box, and this function mut not be
@@ -97,7 +97,7 @@ impl<L> MutexNode<L> {
     /// when calling this function. It is expected that a successor node will
     /// be responsible to do so. See: [`MutexNode::from_ptr`].
     ///
-    /// # SAFETY
+    /// # Safety
     ///
     /// The pointer is required to be non-null, it must have been allocated
     /// with the [memory layout] used by Box, and this function mut not be
@@ -181,7 +181,7 @@ impl<T, L: Lock, W> Mutex<T, L, W> {
 
 impl<T: ?Sized, L: Lock, W: Wait> Mutex<T, L, W> {
     /// Acquires this mutex, blocking the current thread until it is able to do so.
-    pub fn lock(&self, mut node: MutexNode<L>) -> MutexGuard<'_, T, L, W> {
+    pub fn lock_with(&self, mut node: MutexNode<L>) -> MutexGuard<'_, T, L, W> {
         // SAFETY: The inner pointer always points to valid nodes allocations
         // and we have exclusive access over the node since it has not been
         // added to the waiting queue yet.
@@ -227,7 +227,7 @@ impl<T: ?Sized + Debug, L: Lock, W: Wait> Debug for Mutex<T, L, W> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let node = MutexNode::new();
         let mut d = f.debug_struct("Mutex");
-        self.lock(node).with(|data| d.field("data", &data));
+        self.lock_with(node).with(|data| d.field("data", &data));
         d.finish()
     }
 }
