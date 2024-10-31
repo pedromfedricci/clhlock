@@ -36,9 +36,8 @@ fn main() {
     }
     let _message = rx.recv();
 
-    // A queue node must be consumed.
-    let node = MutexNode::new();
-    let count = data.lock_with(node);
+    // A queue node is transparently allocated and consumed.
+    let count = data.lock();
     assert_eq!(*count, N);
     // lock is unlock here when `count` goes out of scope.
 }
