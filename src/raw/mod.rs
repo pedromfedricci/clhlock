@@ -46,7 +46,7 @@ pub mod spins {
     ///
     /// let mutex = Mutex::new(0);
     /// let node = MutexNode::new();
-    /// let guard = mutex.lock(node);
+    /// let guard = mutex.lock_with(node);
     /// assert_eq!(*guard, 0);
     /// ```
     /// [`raw::Mutex`]: mutex::Mutex
@@ -75,7 +75,7 @@ pub mod spins {
         ///
         /// let mutex = Mutex::new(0);
         /// let node = MutexNode::new();
-        /// let guard = mutex.lock(node);
+        /// let guard = mutex.lock_with(node);
         /// assert_eq!(*guard, 0);
         /// ```
         /// [`raw::Mutex`]: mutex::Mutex
@@ -108,7 +108,7 @@ pub mod yields {
     ///
     /// let mutex = Mutex::new(0);
     /// let node = MutexNode::new();
-    /// let guard = mutex.lock(node);
+    /// let guard = mutex.lock_with(node);
     /// assert_eq!(*guard, 0);
     /// ```
     /// [`raw::Mutex`]: mutex::Mutex
@@ -137,7 +137,7 @@ pub mod yields {
         ///
         /// let mutex = Mutex::new(0);
         /// let node = MutexNode::new();
-        /// let guard = mutex.lock(node);
+        /// let guard = mutex.lock_with(node);
         /// assert_eq!(*guard, 0);
         /// ```
         /// [`raw::Mutex`]: mutex::Mutex
@@ -168,7 +168,7 @@ pub mod loops {
     ///
     /// let mutex = Mutex::new(0);
     /// let node = MutexNode::new();
-    /// let guard = mutex.lock(node);
+    /// let guard = mutex.lock_with(node);
     /// assert_eq!(*guard, 0);
     /// ```
     /// [`raw::Mutex`]: mutex::Mutex

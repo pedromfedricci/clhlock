@@ -94,13 +94,13 @@ fn main() {
     thread::spawn(move || {
         // A queue node handle must be consumed.
         let node = MutexNode::new();
-        *c_mutex.lock(node) = 10;
+        *c_mutex.lock_with(node) = 10;
     })
     .join().expect("thread::spawn failed");
 
     // A queue node handle must be consumed.
     let node = MutexNode::new();
-    assert_eq!(*mutex.lock(node), 10);
+    assert_eq!(*mutex.lock_with(node), 10);
 }
 ```
 

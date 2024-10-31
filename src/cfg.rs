@@ -46,7 +46,7 @@ pub mod atomic {
 }
 
 pub mod cell {
-    pub use sealed::{CellNullMut, WithUnchecked};
+    pub use sealed::{CellNullMut, UnsafeCellWith};
 
     #[cfg(not(all(loom, test)))]
     pub use core::cell::UnsafeCell;
@@ -60,7 +60,7 @@ pub mod cell {
     #[cfg(all(loom, test))]
     pub use loom::cell::Cell;
 
-    impl<T: ?Sized> WithUnchecked for UnsafeCell<T> {
+    impl<T: ?Sized> UnsafeCellWith for UnsafeCell<T> {
         type Target = T;
 
         #[cfg(not(all(loom, test)))]
@@ -104,7 +104,7 @@ pub mod cell {
 
         /// A trait that extends [`UnsafeCell`] to allow running closures against
         /// its underlying data.
-        pub trait WithUnchecked {
+        pub trait UnsafeCellWith {
             /// The type of the underlying data.
             type Target: ?Sized;
 
@@ -186,7 +186,7 @@ pub mod hint {
 }
 
 pub mod thread {
-    #[cfg(all(any(feature = "yield", test), not(all(loom, test))))]
+    #[cfg(all(any(feature = "yield", test), not(loom)))]
     pub use std::thread::yield_now;
 
     #[cfg(all(loom, test))]

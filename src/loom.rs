@@ -18,12 +18,12 @@ pub unsafe trait Guard: Sized {
     fn get(&self) -> &UnsafeCell<Self::Target>;
 
     /// Get a Loom immutable pointer bounded by this guard lifetime.
-    fn deref(&self) -> GuardDeref<'_, Self> {
+    fn get_ref(&self) -> GuardDeref<'_, Self> {
         GuardDeref::new(self)
     }
 
     /// Get a Loom mutable pointer bounded by this guard lifetime.
-    fn deref_mut(&self) -> GuardDerefMut<'_, Self> {
+    fn get_mut(&mut self) -> GuardDerefMut<'_, Self> {
         GuardDerefMut::new(self)
     }
 }
@@ -53,11 +53,12 @@ impl<G: Guard> Deref for GuardDeref<'_, G> {
 /// A Loom mutable pointer borrowed from a guard instance.
 pub struct GuardDerefMut<'a, G: Guard> {
     ptr: MutPtr<G::Target>,
-    marker: PhantomData<(&'a G::Target, &'a G)>,
+    marker: PhantomData<(&'a mut G::Target, &'a mut G)>,
 }
 
 impl<G: Guard> GuardDerefMut<'_, G> {
-    fn new(guard: &G) -> Self {
+    #[allow(clippy::needless_pass_by_ref_mut)]
+    fn new(guard: &mut G) -> Self {
         let ptr = guard.get().get_mut();
         Self { ptr, marker: PhantomData }
     }
@@ -85,35 +86,35 @@ pub mod models {
     use loom::sync::Arc;
     use loom::{model, thread};
 
-    use crate::test::{Guard, LockWith};
+    use crate::test::{AsDeref, AsDerefMut, LockThen};
 
     type Int = usize;
     const LOCKS: Int = 3;
 
     /// Increments a shared integer.
-    fn inc<L: LockWith<Target = Int>>(lock: &Arc<L>) {
-        lock.lock_with(|guard| *guard.deref_mut() += 1);
+    fn inc<L: LockThen<Target = Int>>(lock: &Arc<L>) {
+        lock.lock_then(|mut data| *data.as_deref_mut() += 1);
     }
 
     /// Get the shared integer.
-    fn get<L: LockWith<Target = Int>>(lock: &Arc<L>) -> Int {
-        lock.lock_with(|guard| *guard.deref())
+    fn get<L: LockThen<Target = Int>>(lock: &Arc<L>) -> Int {
+        lock.lock_then(|data| *data.as_deref())
     }
 
     /// Evaluates that concurrent `lock` calls will serialize all mutations
     /// against the shared data, therefore no data races.
-    pub fn lock_join<L: LockWith<Target = Int> + 'static>() {
+    pub fn lock_join<L: LockThen<Target = Int> + 'static>() {
         model(|| {
             const RUNS: Int = LOCKS;
-            let data = Arc::new(L::new(0));
+            let lock = Arc::new(L::new(0));
             let handles: [_; RUNS] = array::from_fn(|_| {
-                let data = Arc::clone(&data);
-                thread::spawn(move || inc(&data))
+                let lock = Arc::clone(&lock);
+                thread::spawn(move || inc(&lock))
             });
             for handle in handles {
                 handle.join().unwrap();
             }
-            let data = get(&data);
+            let data = get(&lock);
             assert_eq!(RUNS, data);
         });
     }
