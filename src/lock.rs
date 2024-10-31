@@ -50,9 +50,6 @@ pub trait Lock {
 pub trait Wait {
     /// The relax operation that will be excuted during lock waiting loops.
     type LockRelax: Relax;
-
-    /// The relax operation that will be excuted during unlock waiting loops.
-    type UnlockRelax: Relax;
 }
 
 impl Lock for AtomicBool {

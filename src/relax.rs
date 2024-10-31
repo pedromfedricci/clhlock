@@ -321,7 +321,6 @@ mod wait {
 
     impl<R: Relax> Wait for RelaxWait<R> {
         type LockRelax = R;
-        type UnlockRelax = R;
     }
 }
 
