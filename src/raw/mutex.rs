@@ -4,13 +4,13 @@ use crate::cfg::atomic::AtomicBool;
 use crate::inner::raw as inner;
 use crate::relax::{Relax, RelaxWait};
 
+#[cfg(test)]
+use crate::test::{LockNew, LockThen};
+
 #[cfg(all(loom, test))]
 use crate::loom::{Guard, GuardDeref, GuardDerefMut};
 #[cfg(all(loom, test))]
 use crate::test::{AsDeref, AsDerefMut};
-
-#[cfg(test)]
-use crate::test::{LockNew, LockThen};
 
 // The inner type of mutex, with a boolean as the atomic data.
 type MutexInner<T, R> = inner::Mutex<T, AtomicBool, RelaxWait<R>>;
