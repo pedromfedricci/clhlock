@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2024-11-04
+
+### Added
+- Improve documentation about `MutexNode` ownership under locking APIs ([`4fd44b6`])
+
+[`4fd44b6`]: https://github.com/pedromfedricci/clhlock/commit/4fd44b61cfac89e20e29b2460477cc4582ea8f48
+
 ## [0.2.0] - 2024-10-31
 
 ### Added
@@ -38,4 +45,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add test coverage
 - Add nextest config
 
-[unreleased]: https://github.com/pedromfedricci/clhlock/compare/v0.2.0..HEAD
+[unreleased]: https://github.com/pedromfedricci/clhlock/compare/v0.2.1..HEAD
