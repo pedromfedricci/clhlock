@@ -66,18 +66,18 @@ RUSTDOCFLAGS="--cfg docsrs" cargo +nightly doc --all-features --open
 ## Waiting queue node allocations
 
 Queue nodes are allocated in the heap, and their ownership is transparently
-moved from the lock holding thread to its successor. Allocating the nodes in
-the stack is not allowed since the CLH lock protocol does not guarantee that
-a predecessor thread will be live by the time a successor access its
-associated locking node. Locking operations require taking ownership over
+moved from the lock holding thread to its successor. Allocating the nodes
+directly in the stack is not possible since the CLH lock protocol does not
+guarantee that a predecessor thread will be live by the time a successor access
+its associated locking node. Locking operations require taking ownership over
 node handles that manage the heap allocations. Therefore, this crate requires
 linking with Rust's core [alloc] library.
 
 ## Locking with a raw CLH spinlock
 
 This implementation operates under FIFO. Raw locking APIs require taking
-ownership over a node handles that manage the heap allocated queue node. These
-node handle are represented by the [`raw::MutexNode`] type. This implementation
+ownership over node handles that manage the heap allocated queue nodes. These
+node handles are represented by the [`raw::MutexNode`] type. This implementation
 is `no_std` compatible. See the [`raw`] module for more information.
 
 ```rust

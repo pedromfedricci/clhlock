@@ -12,9 +12,6 @@ use crate::loom::{Guard, GuardDeref, GuardDerefMut};
 #[cfg(all(loom, test))]
 use crate::test::{AsDeref, AsDerefMut};
 
-// The inner type of mutex, with a boolean as the atomic data.
-type MutexInner<T, R> = inner::Mutex<T, AtomicBool, RelaxWait<R>>;
-
 /// A locally-accessible handle to a heap allocated node for forming
 /// waiting queue.
 ///
@@ -63,6 +60,9 @@ impl Default for MutexNode {
         Self::new()
     }
 }
+
+// The inner type of mutex, with a boolean as the atomic data.
+type MutexInner<T, R> = inner::Mutex<T, AtomicBool, RelaxWait<R>>;
 
 /// A mutual exclusion primitive useful for protecting shared data.
 ///
@@ -158,7 +158,8 @@ impl<T: ?Sized, R: Relax> Mutex<T, R> {
     ///
     /// This function transparently allocates a [`MutexNode`] in the stack for
     /// each call, and so it will not reuse the same node for other calls.
-    /// Consider callig [`lock_with`] if you want to reuse node allocations.
+    /// Consider calling [`lock_with`] if you want to reuse node allocations
+    /// returned by the [`MutexGuard`]'s [`unlock`] method.
     ///
     /// This function will block if the lock is unavailable.
     ///
@@ -184,6 +185,7 @@ impl<T: ?Sized, R: Relax> Mutex<T, R> {
     /// assert_eq!(*mutex.lock(), 10);
     /// ```
     /// [`lock_with`]: Mutex::lock_with
+    /// [`unlock`]: MutexGuard::unlock
     #[inline]
     pub fn lock(&self) -> MutexGuard<'_, T, R> {
         self.lock_with(MutexNode::new())
@@ -239,8 +241,8 @@ impl<T: ?Sized, R: Relax> Mutex<T, R> {
     ///
     /// This function transparently allocates a [`MutexNode`] in the stack for
     /// each call, and so it will not reuse the same node for other calls.
-    /// Consider callig [`lock_with_then`] if you want to reuse node
-    /// allocations.
+    /// Consider calling [`lock_with_then`] if you want to reuse node
+    /// allocations returned by the [`MutexGuard`]'s [`unlock`] method.
     ///
     /// This function will block if the lock is unavailable.
     ///
@@ -276,6 +278,7 @@ impl<T: ?Sized, R: Relax> Mutex<T, R> {
     /// let data = mutex.lock_then(|guard| &*guard);
     /// ```
     /// [`lock_with_then`]: Mutex::lock_with_then
+    /// [`unlock`]: MutexGuard::unlock
     #[inline]
     pub fn lock_then<F, Ret>(&self, f: F) -> Ret
     where
@@ -436,12 +439,17 @@ type GuardInner<'a, T, R> = inner::MutexGuard<'a, T, AtomicBool, RelaxWait<R>>;
 /// [`Deref`] and [`DerefMut`] implementations.
 ///
 /// This structure is returned by the [`lock`] method on [`Mutex`]. It is also
-/// given as closure argument by the [`lock_with`] method.
+/// given as closure parameter by the [`lock_with`] method.
+///
+/// A guard may be explicitly unlocked by the [`unlock`] method, which returns
+/// a instance of [`MutexNode`], that may be reused by other locking operations
+/// that require taking ownership over the nodes.
 ///
 /// [`Deref`]: core::ops::Deref
 /// [`DerefMut`]: core::ops::DerefMut
 /// [`lock`]: Mutex::lock
 /// [`lock_with`]: Mutex::lock_with
+/// [`unlock`]: MutexGuard::unlock
 #[must_use = "if unused the Mutex will immediately unlock"]
 pub struct MutexGuard<'a, T: ?Sized, R> {
     inner: GuardInner<'a, T, R>,

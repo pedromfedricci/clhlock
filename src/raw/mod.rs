@@ -11,7 +11,7 @@
 //!
 //! The lock is hold for as long as its associated RAII guard is in scope. Once
 //! the guard is dropped, the mutex is freed. Mutex guards are returned by
-//! [`lock`] method. Guards are also accessible as the closure argument for the
+//! [`lock`] method. Guards are also accessible as the closure parameter for the
 //! [`lock_with`] method.
 //!
 //! This Mutex is generic over the relax policy. User may choose a policy as long
