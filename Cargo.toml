@@ -4,7 +4,7 @@ An implementation of Craig and, indenpendently, Magnussen, Landin, and
 Hagersten queue lock for mutual exclusion, referred to as CLH lock.
 """
 name = "clhlock"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 # NOTE: Rust 1.65 is required for GATs and let-else statements.
 rust-version = "1.65.0"

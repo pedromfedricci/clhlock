@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2024-11-12
+
+### Changed
+- Reduce Rust MSRV from 1.70.0 to 1.65.0 ([`f2c4719`])
+
+[`f2c4719`]: https://github.com/pedromfedricci/clhlock/commit/f2c471992f336a375988b6ebb7118fc0005ba2f6
+
 ## [0.2.1] - 2024-11-04
 
 ### Added
@@ -27,7 +34,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add Send/sync for node and guard
 - Update categories and keywords
 
-
 ### Fixed
 - Improve test coverage
 - Improve relax testing
@@ -45,4 +51,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add test coverage
 - Add nextest config
 
-[unreleased]: https://github.com/pedromfedricci/clhlock/compare/v0.2.1..HEAD
+[unreleased]: https://github.com/pedromfedricci/clhlock/compare/v0.2.2..HEAD
