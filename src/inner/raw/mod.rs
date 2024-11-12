@@ -200,10 +200,7 @@ impl<T: ?Sized, L: Lock, W: Wait> Mutex<T, L, W> {
 
 impl<T: ?Sized, L, W> Drop for Mutex<T, L, W> {
     fn drop(&mut self) {
-        // SAFETY: A mutex is only ever dropped once all locking threads have
-        // finished their critical sections, so we have exclusive access over
-        // the queue's tail.
-        let tail = unsafe { self.tail.load_unsynced() };
+        let tail = self.tail.load_unsynced();
         // SAFETY: The memory was allocated through the Box API, therefore it
         // fulfills the layout requirements. The pointer is guaranteed to not
         // be null, since the tail is initialized with a valid allocation, and

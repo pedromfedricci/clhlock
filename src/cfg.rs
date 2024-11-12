@@ -11,36 +11,26 @@ pub mod atomic {
         type Target = T;
 
         #[cfg(not(all(loom, test)))]
-        unsafe fn load_unsynced(&self) -> *mut Self::Target {
-            // SAFETY: Caller guaranteed that the atomic value is not currently
-            // visible by any other thread.
-            unsafe { *self.as_ptr() }
+        fn load_unsynced(&mut self) -> *mut Self::Target {
+            *self.get_mut()
         }
 
         #[cfg(all(loom, test))]
         #[cfg(not(tarpaulin_include))]
-        unsafe fn load_unsynced(&self) -> *mut Self::Target {
-            // SAFETY: Caller guaranteed that the atomic value is not currently
-            // visible by any other thread.
-            unsafe { self.unsync_load() }
+        fn load_unsynced(&mut self) -> *mut Self::Target {
+            self.with_mut(|ptr| *ptr)
         }
     }
 
     mod sealed {
         /// A trait that extends [`AtomicPtr`] so that it will allow loading the
-        /// value without any synchronization.
-        ///
-        /// # Safety
-        ///
-        /// Caller must guarantee that the atomic value is not currently visible
-        /// by any other thread, as this is equivalent to a non-atomic load over
-        /// the value.
+        /// the raw pointer without any synchronization.
         pub trait UnsyncLoad {
             /// The type of the pointed to value.
             type Target;
 
             /// Load the value without any synchronization.
-            unsafe fn load_unsynced(&self) -> *mut Self::Target;
+            fn load_unsynced(&mut self) -> *mut Self::Target;
         }
     }
 }
