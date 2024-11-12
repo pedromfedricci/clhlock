@@ -51,17 +51,9 @@ impl<L: Lock> MutexNodeInner<L> {
         Self { prev, lock }
     }
 
-    /// Change the inner lock state to locked.
-    #[cfg(not(all(loom, test)))]
+    /// Change the inner lock state to `locked`.
     fn lock(&mut self) {
-        self.lock = Lock::LOCKED;
-    }
-
-    /// Change the inner, Loom based lock state to locked.
-    #[cfg(all(loom, test))]
-    #[cfg(not(tarpaulin_include))]
-    fn lock(&mut self) {
-        self.lock = Lock::locked();
+        self.lock.lock();
     }
 }
 
@@ -279,7 +271,7 @@ impl<'a, T: ?Sized, L: Lock, W> MutexGuard<'a, T, L, W> {
         // SAFETY: The inner pointer always points to valid nodes allocations.
         let inner = unsafe { self.head.inner.as_ref() };
         let prev = inner.prev.get();
-        inner.lock.notify();
+        inner.lock.notify_release();
         // SAFETY: The memory was allocated through the Box API, therefore it
         // fulfills the layout requirements. The pointer is guaranteed to not
         // be null, since the tail is initialized with a valid allocation, and

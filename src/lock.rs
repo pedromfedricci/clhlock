@@ -34,6 +34,9 @@ pub trait Lock {
     #[cfg(all(loom, test))]
     fn unlocked() -> Self;
 
+    /// Changes the lock state to `locked` through an exclusive reference.
+    fn lock(&mut self);
+
     /// Blocks the thread untill the lock is acquired, applies some arbitrary
     /// waiting policy while the lock is still on hold somewhere else.
     ///
@@ -42,7 +45,7 @@ pub trait Lock {
 
     /// Changes the state of the lock and, possibly, notifies that change
     /// to some other interested party.
-    fn notify(&self);
+    fn notify_release(&self);
 }
 
 /// The waiting policy that should be applied while the lock state has not
@@ -73,6 +76,17 @@ impl Lock for AtomicBool {
         Self::new(false)
     }
 
+    #[cfg(not(all(loom, test)))]
+    fn lock(&mut self) {
+        *self = Self::LOCKED;
+    }
+
+    #[cfg(all(loom, test))]
+    #[cfg(not(tarpaulin_include))]
+    fn lock(&mut self) {
+        *self = Self::locked();
+    }
+
     fn lock_wait_relaxed<W: Wait>(&self) {
         // Block the thread with a relaxed loop until the load returns `false`,
         // indicating that the lock was handed off to the current thread.
@@ -82,7 +96,7 @@ impl Lock for AtomicBool {
         }
     }
 
-    fn notify(&self) {
+    fn notify_release(&self) {
         self.store(false, Release);
     }
 }
