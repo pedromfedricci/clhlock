@@ -39,16 +39,10 @@ pub mod cell {
     pub use sealed::{CellNullMut, UnsafeCellWith};
 
     #[cfg(not(all(loom, test)))]
-    pub use core::cell::UnsafeCell;
+    pub use core::cell::{Cell, UnsafeCell};
 
     #[cfg(all(loom, test))]
-    pub use loom::cell::UnsafeCell;
-
-    #[cfg(not(all(loom, test)))]
-    pub use core::cell::Cell;
-
-    #[cfg(all(loom, test))]
-    pub use loom::cell::Cell;
+    pub use loom::cell::{Cell, UnsafeCell};
 
     impl<T: ?Sized> UnsafeCellWith for UnsafeCell<T> {
         type Target = T;
