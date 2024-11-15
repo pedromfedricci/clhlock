@@ -96,9 +96,9 @@ impl<L> MutexNode<L> {
     /// called twice on the same raw pointer.
     ///
     /// [memory layout]: https://doc.rust-lang.org/alloc/boxed/index.html#memory-layout
-    unsafe fn set(this: &mut Self, ptr: *mut MutexNodeInner<L>) {
+    unsafe fn set(&mut self, ptr: *mut MutexNodeInner<L>) {
         // SAFETY: Caller guaranteed that `ptr` is non-null.
-        this.inner = unsafe { NonNull::new_unchecked(ptr) };
+        self.inner = unsafe { NonNull::new_unchecked(ptr) };
     }
 }
 
@@ -278,7 +278,7 @@ impl<'a, T: ?Sized, L: Lock, W> MutexGuard<'a, T, L, W> {
         // all tail updates point to valid, heap allocated nodes. The caller
         // guaranteed that this function is only ever called once over the same
         // self reference.
-        unsafe { MutexNode::set(&mut self.head, prev) }
+        unsafe { self.head.set(prev) };
     }
 }
 
