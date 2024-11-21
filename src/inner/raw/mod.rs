@@ -184,7 +184,7 @@ impl<T: ?Sized, L: Lock, W: Wait> Mutex<T, L, W> {
         // SAFETY: The predecessor is guaranteed to be not null, since the tail
         // is initialized with a valid allocation, and all tail updates point
         // to valid, heap allocated nodes that outlive the predecessor thread.
-        unsafe { &*prev }.lock.lock_wait_relaxed::<W>();
+        unsafe { &*prev }.lock.wait_lock_relaxed::<W>();
         fence(Acquire);
         MutexGuard::new(self, node)
     }
@@ -223,6 +223,7 @@ impl<T: ?Sized + Debug, L: Lock, W: Wait> Debug for Mutex<T, L, W> {
 
 /// An RAII implementation of a "scoped lock" of a mutex. When this structure is
 /// dropped (falls out of scope), the lock will be unlocked.
+#[must_use = "if unused the Mutex will immediately unlock"]
 pub struct MutexGuard<'a, T: ?Sized, L: Lock, W> {
     lock: &'a Mutex<T, L, W>,
     head: MutexNode<L>,
