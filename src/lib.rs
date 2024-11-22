@@ -37,8 +37,9 @@
 //! directly in the stack is not possible since the CLH lock protocol does not
 //! guarantee that a predecessor thread will be live by the time a successor access
 //! its associated locking node. Locking operations require taking ownership over
-//! node handles that manage the heap allocations. Therefore, this crate requires
-//! linking with Rust's core [alloc] library.
+//! node handles that manage the heap allocations. Node handles are represented
+//! by the [`raw::MutexNode`] type. Therefore, this crate requires linking with
+//! Rust's core [alloc] library.
 //!
 //! ## Locking with a raw CLH spinlock
 //!

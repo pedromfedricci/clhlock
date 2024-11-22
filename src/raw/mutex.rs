@@ -156,10 +156,10 @@ impl<T: ?Sized, R: Relax> Mutex<T, R> {
     /// held. An RAII guard is returned to allow scoped unlock of the lock. When
     /// the guard goes out of scope, the mutex will be unlocked.
     ///
-    /// This function transparently allocates a [`MutexNode`] in the stack for
-    /// each call, and so it will not reuse the same node for other calls.
-    /// Consider calling [`lock_with`] if you want to reuse node allocations
-    /// returned by the [`MutexGuard`]'s [`unlock`] method.
+    /// This function transparently allocates a [`MutexNode`] for each call,
+    /// and so it will not reuse the same node for other calls. Consider calling
+    /// [`lock_with`] if you want to reuse node allocations returned by the
+    /// [`MutexGuard`]'s [`unlock`] method.
     ///
     /// This function will block if the lock is unavailable.
     ///
@@ -239,10 +239,10 @@ impl<T: ?Sized, R: Relax> Mutex<T, R> {
     /// executed against the mutex guard. Once the guard goes out of scope, it
     /// will unlock the mutex.
     ///
-    /// This function transparently allocates a [`MutexNode`] in the stack for
-    /// each call, and so it will not reuse the same node for other calls.
-    /// Consider calling [`lock_with_then`] if you want to reuse node
-    /// allocations returned by the [`MutexGuard`]'s [`unlock`] method.
+    /// This function transparently allocates a [`MutexNode`] for each call,
+    /// and so it will not reuse the same node for other calls. Consider calling
+    /// [`lock_with_then`] if you want to reuse node allocations returned by the
+    /// [`MutexGuard`]'s [`unlock`] method.
     ///
     /// This function will block if the lock is unavailable.
     ///
@@ -287,12 +287,12 @@ impl<T: ?Sized, R: Relax> Mutex<T, R> {
         self.lock_with_then(MutexNode::new(), f)
     }
 
-    /// Acquires this mutex and then runs the closure against the proteced data.
+    /// Acquires this mutex and then runs the closure against its guard.
     ///
     /// This function will block the local thread until it is available to acquire
     /// the mutex. Upon acquiring the mutex, the user provided closure will be
-    /// executed against the mutex proteced data. Once the closure goes out of
-    /// scope, it will unlock the mutex.
+    /// executed against the mutex guard. Once the guard goes out of scope, it
+    /// will unlock the mutex.
     ///
     /// To acquire a CLH lock through this function, it's also required to
     /// consume queue node, which is a record that keeps a link for forming the
