@@ -184,7 +184,7 @@ impl<T: ?Sized, L: Lock, W: Wait> Mutex<T, L, W> {
         // SAFETY: The predecessor is guaranteed to be not null, since the tail
         // is initialized with a valid allocation, and all tail updates point
         // to valid, heap allocated nodes that outlive the predecessor thread.
-        unsafe { &*prev }.lock.wait_lock_relaxed::<W>();
+        unsafe { &(*prev).lock }.wait_lock_relaxed::<W>();
         fence(Acquire);
         MutexGuard::new(self, node)
     }
