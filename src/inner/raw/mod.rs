@@ -178,13 +178,13 @@ impl<T: ?Sized, L: Lock, W: Wait> Mutex<T, L, W> {
         // and we have exclusive access over the node since it has not been
         // added to the waiting queue yet.
         unsafe { node.inner.as_mut() }.lock();
-        let prev = self.tail.swap(node.inner.as_ptr(), AcqRel);
+        let pred = self.tail.swap(node.inner.as_ptr(), AcqRel);
         // SAFETY: The inner pointer always points to valid nodes allocations.
-        unsafe { node.inner.as_ref() }.prev.set(prev);
+        unsafe { node.inner.as_ref() }.prev.set(pred);
         // SAFETY: The predecessor is guaranteed to be not null, since the tail
         // is initialized with a valid allocation, and all tail updates point
         // to valid, heap allocated nodes that outlive the predecessor thread.
-        unsafe { &(*prev).lock }.wait_lock_relaxed::<W>();
+        unsafe { &(*pred).lock }.wait_lock_relaxed::<W>();
         fence(Acquire);
         MutexGuard::new(self, node)
     }
@@ -271,7 +271,7 @@ impl<'a, T: ?Sized, L: Lock, W> MutexGuard<'a, T, L, W> {
     unsafe fn unlock(&mut self) {
         // SAFETY: The inner pointer always points to valid nodes allocations.
         let inner = unsafe { self.head.inner.as_ref() };
-        let prev = inner.prev.get();
+        let pred = inner.prev.get();
         inner.lock.notify_release();
         // SAFETY: The memory was allocated through the Box API, therefore it
         // fulfills the layout requirements. The pointer is guaranteed to not
@@ -279,7 +279,7 @@ impl<'a, T: ?Sized, L: Lock, W> MutexGuard<'a, T, L, W> {
         // all tail updates point to valid, heap allocated nodes. The caller
         // guaranteed that this function is only ever called once over the same
         // self reference.
-        unsafe { self.head.set(prev) };
+        unsafe { self.head.set(pred) };
     }
 }
 
