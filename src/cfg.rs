@@ -65,6 +65,25 @@ pub mod cell {
             // SAFETY: Caller guaranteed that there are no mutable aliases.
             self.with(|ptr| f(unsafe { &*ptr }))
         }
+
+        #[cfg(all(not(loom), test))]
+        unsafe fn with_mut_unchecked<F, Ret>(&self, f: F) -> Ret
+        where
+            F: FnOnce(&mut Self::Target) -> Ret,
+        {
+            // SAFETY: Caller guaranteed that there are no mutable aliases.
+            f(unsafe { &mut *self.get() })
+        }
+
+        #[cfg(all(loom, test))]
+        #[cfg(not(tarpaulin_include))]
+        unsafe fn with_mut_unchecked<F, Ret>(&self, f: F) -> Ret
+        where
+            F: FnOnce(&mut Self::Target) -> Ret,
+        {
+            // SAFETY: Caller guaranteed that there are no mutable aliases.
+            self.with_mut(|ptr| f(unsafe { &mut *ptr }))
+        }
     }
 
     impl<T> CellNullMut for Cell<*mut T> {
@@ -101,6 +120,17 @@ pub mod cell {
             unsafe fn with_unchecked<F, Ret>(&self, f: F) -> Ret
             where
                 F: FnOnce(&Self::Target) -> Ret;
+
+            /// Runs `f` against a mutable reference borrowed from a [`UnsafeCell`].
+            ///
+            /// # Safety
+            ///
+            /// Caller must guarantee there are no mutable aliases to the
+            /// underlying data.
+            #[cfg(test)]
+            unsafe fn with_mut_unchecked<F, Ret>(&self, f: F) -> Ret
+            where
+                F: FnOnce(&mut Self::Target) -> Ret;
         }
 
         /// A trait that extends [`Cell`] to allow creating `null` values.
@@ -159,6 +189,15 @@ pub mod debug_abort {
             panic!("thread exits are forbidden inside {:?}, aborting", self.location);
         }
     }
+}
+
+#[cfg(test)]
+pub mod sync {
+    #[cfg(not(all(loom, test)))]
+    pub use std::sync::Arc;
+
+    #[cfg(all(loom, test))]
+    pub use loom::sync::Arc;
 }
 
 pub mod hint {

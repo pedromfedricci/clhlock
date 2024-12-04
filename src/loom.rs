@@ -86,26 +86,29 @@ pub mod models {
     use loom::sync::Arc;
     use loom::{model, thread};
 
-    use crate::test::{AsDeref, AsDerefMut, LockThen};
+    use crate::test::LockWithThen;
+    use crate::test::{get, inc, Int};
 
-    type Int = usize;
-    const LOCKS: Int = 3;
-
-    /// Increments a shared integer.
-    fn inc<L: LockThen<Target = Int>>(lock: &Arc<L>) {
-        lock.lock_then(|mut data| *data.as_deref_mut() += 1);
+    /// Get a copy of the shared integer, converting it to usize.
+    ///
+    /// Panics if the cast fails.
+    fn get_unwrap<L>(lock: &Arc<L>) -> usize
+    where
+        L: LockWithThen<Target = Int>,
+    {
+        get(lock).try_into().unwrap()
     }
 
-    /// Get the shared integer.
-    fn get<L: LockThen<Target = Int>>(lock: &Arc<L>) -> Int {
-        lock.lock_then(|data| *data.as_deref())
-    }
+    const LOCKS: usize = 3;
 
     /// Evaluates that concurrent `lock` calls will serialize all mutations
     /// against the shared data, therefore no data races.
-    pub fn lock_join<L: LockThen<Target = Int> + 'static>() {
+    pub fn lock_join<L>()
+    where
+        L: LockWithThen<Target = Int> + 'static,
+    {
         model(|| {
-            const RUNS: Int = LOCKS;
+            const RUNS: usize = LOCKS;
             let lock = Arc::new(L::new(0));
             let handles: [_; RUNS] = array::from_fn(|_| {
                 let lock = Arc::clone(&lock);
@@ -114,7 +117,7 @@ pub mod models {
             for handle in handles {
                 handle.join().unwrap();
             }
-            let value = get(&lock);
+            let value = get_unwrap(&lock);
             assert_eq!(RUNS, value);
         });
     }

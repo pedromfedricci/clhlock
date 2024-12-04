@@ -5,12 +5,15 @@ use crate::inner::raw as inner;
 use crate::relax::{Relax, RelaxWait};
 
 #[cfg(test)]
-use crate::test::{LockNew, LockThen};
+use crate::test::{LockNew, LockWithThen, RetNode};
 
 #[cfg(all(loom, test))]
 use crate::loom::{Guard, GuardDeref, GuardDerefMut};
 #[cfg(all(loom, test))]
 use crate::test::{AsDeref, AsDerefMut};
+
+// The inner type of the mutex node, with a boolean as the atomic data.
+type MutexNodeInner = inner::MutexNode<AtomicBool>;
 
 /// A locally-accessible handle to a heap allocated node for forming
 /// waiting queue.
@@ -29,7 +32,7 @@ use crate::test::{AsDeref, AsDerefMut};
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct MutexNode {
-    inner: inner::MutexNode<AtomicBool>,
+    inner: MutexNodeInner,
 }
 
 // Same unsafe impls as `crate::inner::raw::MutexNode`.
@@ -49,7 +52,7 @@ impl MutexNode {
     #[must_use]
     #[inline(always)]
     pub fn new() -> Self {
-        Self { inner: inner::MutexNode::new() }
+        Self { inner: MutexNodeInner::new() }
     }
 }
 
@@ -61,7 +64,14 @@ impl Default for MutexNode {
     }
 }
 
-// The inner type of mutex, with a boolean as the atomic data.
+#[doc(hidden)]
+impl From<MutexNodeInner> for MutexNode {
+    fn from(inner: MutexNodeInner) -> Self {
+        Self { inner }
+    }
+}
+
+// The inner type of the mutex, with a boolean as the atomic data.
 type MutexInner<T, R> = inner::Mutex<T, AtomicBool, RelaxWait<R>>;
 
 /// A mutual exclusion primitive useful for protecting shared data.
@@ -408,17 +418,20 @@ impl<T: ?Sized, R> LockNew for Mutex<T, R> {
 }
 
 #[cfg(test)]
-impl<T: ?Sized, R: Relax> LockThen for Mutex<T, R> {
-    type Guard<'a> = MutexGuard<'a, Self::Target, R>
+impl<T: ?Sized, R: Relax> LockWithThen for Mutex<T, R> {
+    type Node = MutexNode;
+
+    type Guard<'a>
+        = &'a mut Self::Target
     where
         Self: 'a,
         Self::Target: 'a;
 
-    fn lock_then<F, Ret>(&self, f: F) -> Ret
+    fn lock_with_then<F, Ret>(&self, node: Self::Node, f: F) -> RetNode<Ret, Self>
     where
-        F: FnOnce(MutexGuard<'_, T, R>) -> Ret,
+        F: FnOnce(&mut Self::Target) -> Ret,
     {
-        self.lock_then(f)
+        self.inner.lock_with_then(node.inner, f)
     }
 }
 
@@ -429,7 +442,7 @@ impl<T: ?Sized, R> crate::test::LockData for Mutex<T, R> {
     }
 }
 
-// The inner type of mutex's guard, with a boolean as the atomic data.
+// The inner type of the mutex's guard, with a boolean as the atomic data.
 type GuardInner<'a, T, R> = inner::MutexGuard<'a, T, AtomicBool, RelaxWait<R>>;
 
 /// An RAII implementation of a "scoped lock" of a mutex. When this structure is
@@ -459,7 +472,7 @@ pub struct MutexGuard<'a, T: ?Sized, R> {
 unsafe impl<T: ?Sized + Send, R> Send for MutexGuard<'_, T, R> {}
 unsafe impl<T: ?Sized + Sync, R> Sync for MutexGuard<'_, T, R> {}
 
-impl<'a, T: ?Sized, R> MutexGuard<'a, T, R> {
+impl<T: ?Sized, R> MutexGuard<'_, T, R> {
     /// Unlocks the mutex and returns a node instance that can be reused by
     /// another locking operation.
     ///
@@ -495,20 +508,20 @@ impl<'a, T: ?Sized, R> From<GuardInner<'a, T, R>> for MutexGuard<'a, T, R> {
     }
 }
 
-impl<'a, T: ?Sized + Debug, R> Debug for MutexGuard<'a, T, R> {
+impl<T: ?Sized + Debug, R> Debug for MutexGuard<'_, T, R> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         self.inner.fmt(f)
     }
 }
 
-impl<'a, T: ?Sized + Display, R> Display for MutexGuard<'a, T, R> {
+impl<T: ?Sized + Display, R> Display for MutexGuard<'_, T, R> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         self.inner.fmt(f)
     }
 }
 
 #[cfg(not(all(loom, test)))]
-impl<'a, T: ?Sized, R> core::ops::Deref for MutexGuard<'a, T, R> {
+impl<T: ?Sized, R> core::ops::Deref for MutexGuard<'_, T, R> {
     type Target = T;
 
     /// Dereferences the guard to access the underlying data.
@@ -519,7 +532,7 @@ impl<'a, T: ?Sized, R> core::ops::Deref for MutexGuard<'a, T, R> {
 }
 
 #[cfg(not(all(loom, test)))]
-impl<'a, T: ?Sized, R> core::ops::DerefMut for MutexGuard<'a, T, R> {
+impl<T: ?Sized, R> core::ops::DerefMut for MutexGuard<'_, T, R> {
     /// Mutably dereferences the guard to access the underlying data.
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut T {
@@ -527,8 +540,8 @@ impl<'a, T: ?Sized, R> core::ops::DerefMut for MutexGuard<'a, T, R> {
     }
 }
 
-/// SAFETY: A guard instance hold the lock locked, with exclusive access to the
-/// underlying data.
+// SAFETY: A guard instance hold the lock locked, with exclusive access to the
+// underlying data.
 #[cfg(all(loom, test))]
 #[cfg(not(tarpaulin_include))]
 unsafe impl<T: ?Sized, R> crate::loom::Guard for MutexGuard<'_, T, R> {
@@ -544,7 +557,8 @@ unsafe impl<T: ?Sized, R> crate::loom::Guard for MutexGuard<'_, T, R> {
 impl<T: ?Sized, R> AsDeref for MutexGuard<'_, T, R> {
     type Target = T;
 
-    type Deref<'a> = GuardDeref<'a, Self>
+    type Deref<'a>
+        = GuardDeref<'a, Self>
     where
         Self: 'a,
         Self::Target: 'a;
@@ -557,7 +571,8 @@ impl<T: ?Sized, R> AsDeref for MutexGuard<'_, T, R> {
 #[cfg(all(loom, test))]
 #[cfg(not(tarpaulin_include))]
 impl<T: ?Sized, R> AsDerefMut for MutexGuard<'_, T, R> {
-    type DerefMut<'a> = GuardDerefMut<'a, Self>
+    type DerefMut<'a>
+        = GuardDerefMut<'a, Self>
     where
         Self: 'a,
         Self::Target: 'a;

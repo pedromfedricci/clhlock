@@ -9,6 +9,9 @@ use crate::cfg::atomic::{fence, AtomicPtr, UnsyncLoad};
 use crate::cfg::cell::{Cell, CellNullMut, UnsafeCell, UnsafeCellWith};
 use crate::lock::{Lock, Wait};
 
+#[cfg(test)]
+use crate::test::{LockWithThen, RetNode};
+
 /// The heap allocated queue node, which is managed by the [`MutexNode`] type.
 #[derive(Debug)]
 struct MutexNodeInner<L> {
@@ -221,6 +224,23 @@ impl<T: ?Sized + Debug, L: Lock, W: Wait> Debug for Mutex<T, L, W> {
     }
 }
 
+impl<T: ?Sized, L: Lock, W: Wait> Mutex<T, L, W> {
+    /// Acquires a mutex and then runs the closure against the protected data.
+    ///
+    /// Returned data is composed of a generic value and a queue node instance.
+    #[cfg(test)]
+    pub fn lock_with_then<Lw, F, Ret>(&self, node: MutexNode<L>, f: F) -> RetNode<Ret, Lw>
+    where
+        Lw: LockWithThen + ?Sized,
+        Lw::Node: From<MutexNode<L>>,
+        F: FnOnce(&mut T) -> Ret,
+    {
+        let mut guard = self.lock_with(node);
+        let ret = guard.with_mut(f);
+        RetNode::new(ret, guard.into_node())
+    }
+}
+
 /// An RAII implementation of a "scoped lock" of a mutex. When this structure is
 /// dropped (falls out of scope), the lock will be unlocked.
 #[must_use = "if unused the Mutex will immediately unlock"]
@@ -247,6 +267,16 @@ impl<'a, T: ?Sized, L: Lock, W> MutexGuard<'a, T, L, W> {
     {
         // SAFETY: A guard instance holds the lock locked.
         unsafe { self.lock.data.with_unchecked(f) }
+    }
+
+    /// Runs `f` against a mutable reference pointing to the underlying data.
+    #[cfg(test)]
+    fn with_mut<F, Ret>(&mut self, f: F) -> Ret
+    where
+        F: FnOnce(&mut T) -> Ret,
+    {
+        // SAFETY: A guard instance holds the lock locked.
+        unsafe { self.lock.data.with_mut_unchecked(f) }
     }
 
     /// Unlocks the mutex and returns a node instance that can be reused by
@@ -283,7 +313,7 @@ impl<'a, T: ?Sized, L: Lock, W> MutexGuard<'a, T, L, W> {
     }
 }
 
-impl<'a, T: ?Sized, L: Lock, W> Drop for MutexGuard<'a, T, L, W> {
+impl<T: ?Sized, L: Lock, W> Drop for MutexGuard<'_, T, L, W> {
     #[inline]
     fn drop(&mut self) {
         // The drop call is only ever run once for any value, and this instance
@@ -292,20 +322,20 @@ impl<'a, T: ?Sized, L: Lock, W> Drop for MutexGuard<'a, T, L, W> {
     }
 }
 
-impl<'a, T: ?Sized + Debug, L: Lock, W> Debug for MutexGuard<'a, T, L, W> {
+impl<T: ?Sized + Debug, L: Lock, W> Debug for MutexGuard<'_, T, L, W> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         self.with(|data| data.fmt(f))
     }
 }
 
-impl<'a, T: ?Sized + Display, L: Lock, W> Display for MutexGuard<'a, T, L, W> {
+impl<T: ?Sized + Display, L: Lock, W> Display for MutexGuard<'_, T, L, W> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         self.with(|data| data.fmt(f))
     }
 }
 
 #[cfg(not(all(loom, test)))]
-impl<'a, T: ?Sized, L: Lock, W> core::ops::Deref for MutexGuard<'a, T, L, W> {
+impl<T: ?Sized, L: Lock, W> core::ops::Deref for MutexGuard<'_, T, L, W> {
     type Target = T;
 
     /// Dereferences the guard to access the underlying data.
@@ -317,7 +347,7 @@ impl<'a, T: ?Sized, L: Lock, W> core::ops::Deref for MutexGuard<'a, T, L, W> {
 }
 
 #[cfg(not(all(loom, test)))]
-impl<'a, T: ?Sized, L: Lock, W> core::ops::DerefMut for MutexGuard<'a, T, L, W> {
+impl<T: ?Sized, L: Lock, W> core::ops::DerefMut for MutexGuard<'_, T, L, W> {
     /// Mutably dereferences the guard to access the underlying data.
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut T {
