@@ -86,7 +86,7 @@ pub mod models {
     use loom::sync::Arc;
     use loom::{model, thread};
 
-    use crate::test::LockWithThen;
+    use crate::test::LockThen;
     use crate::test::{get, inc, Int};
 
     /// Get a copy of the shared integer, converting it to usize.
@@ -94,7 +94,7 @@ pub mod models {
     /// Panics if the cast fails.
     fn get_unwrap<L>(lock: &Arc<L>) -> usize
     where
-        L: LockWithThen<Target = Int>,
+        L: LockThen<Target = Int>,
     {
         get(lock).try_into().unwrap()
     }
@@ -105,7 +105,7 @@ pub mod models {
     /// against the shared data, therefore no data races.
     pub fn lock_join<L>()
     where
-        L: LockWithThen<Target = Int> + 'static,
+        L: LockThen<Target = Int> + 'static,
     {
         model(|| {
             const RUNS: usize = LOCKS;

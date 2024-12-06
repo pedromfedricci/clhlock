@@ -42,48 +42,51 @@ pub trait LockNew {
         Self::Target: Sized;
 }
 
-/// A trait for lock types that can run closures against the protected data.
-pub trait LockWithThen: LockNew {
+/// A trait for lock types that require consuming queue nodes.
+pub trait LockWith: LockNew {
     /// The queue node type to consume and form the implicit queue.
     type Node: Default;
 
     /// A `guard` has access to a type that can can give shared and exclusive
     /// references to the protected data.
-    type Guard<'a>: AsDerefMut<Target = Self::Target>
+    type Guard<'a>: AsDerefMut<Target = Self::Target> + Into<Self::Node>
     where
         Self: 'a,
         Self::Target: 'a;
 
+    /// Acquires this mutex, blocking the current thread until it is able to do
+    /// so.
+    ///
+    /// Requires consuming a `Self::Node` instance.
+    #[cfg_attr(all(loom, test), allow(dead_code))]
+    fn lock_with(&self, node: Self::Node) -> Self::Guard<'_>;
+}
+
+/// A trait for lock types that implement the "standard" locking interface.
+pub trait Lock: LockWith {
+    fn lock(&self) -> Self::Guard<'_>;
+}
+
+/// A trait for lock types that require consuming queue nodes and can run
+/// closures against the protected data.
+pub trait LockWithThen: Lock {
     /// Acquires a mutex and then runs the closure against the protected data.
     ///
     /// Requires consuming a `Self::Node` instance.
-    fn lock_with_then<F, Ret>(&self, node: Self::Node, f: F) -> RetNode<Ret, Self>
+    #[cfg_attr(all(loom, test), allow(dead_code))]
+    fn lock_with_then<F, Ret>(&self, node: Self::Node, f: F) -> Ret
     where
         F: FnOnce(Self::Guard<'_>) -> Ret;
+}
 
+/// A trait for lock types that can run closures against the protected data.
+pub trait LockThen: LockWithThen {
     /// Acquires a mutex and then runs the closure against the protected data.
     ///
     /// A `Self::Node` is transparently allocated in the stack.
     fn lock_then<F, Ret>(&self, f: F) -> Ret
     where
-        F: FnOnce(Self::Guard<'_>) -> Ret,
-    {
-        self.lock_with_then(Self::Node::default(), f).ret
-    }
-}
-
-/// A generic returned value with a reusable queue node.
-pub struct RetNode<Ret, L: LockWithThen + ?Sized> {
-    ret: Ret,
-    #[cfg_attr(all(loom, test), allow(dead_code))]
-    node: L::Node,
-}
-
-impl<Ret, L: LockWithThen + ?Sized> RetNode<Ret, L> {
-    /// Creates a new `RetWithNode` instance from `node` and `ret`.
-    pub fn new<N: Into<L::Node>>(ret: Ret, node: N) -> Self {
-        Self { ret, node: node.into() }
-    }
+        F: FnOnce(Self::Guard<'_>) -> Ret;
 }
 
 /// A trait for lock types that can return either the underlying value (by
@@ -128,34 +131,37 @@ pub type Int = u32;
 /// Get a copy of the mutex protected data.
 pub fn get<L>(mutex: &Arc<L>) -> L::Target
 where
+    L: Lock<Target: Sized + Copy>,
+{
+    *mutex.lock().as_deref()
+}
+
+/// Get a copy of the mutex protected data, consuming a queue node.
+#[cfg(not(all(loom, test)))]
+pub fn get_with<L>(mutex: &Arc<L>, node: L::Node) -> L::Target
+where
     L: LockWithThen<Target: Sized + Copy>,
 {
-    mutex.lock_then(|data| *data.as_deref())
+    mutex.lock_with_then(node, |g| *g.as_deref())
 }
 
 /// Increments a shared integer.
 pub fn inc<L>(mutex: &Arc<L>)
 where
-    L: LockWithThen<Target = Int>,
+    L: LockThen<Target = Int>,
 {
-    mutex.lock_then(inc_inner::<L>);
+    mutex.lock_then(|mut g| *g.as_deref_mut() += 1);
 }
 
 /// Increments a shared integer, consuming and returning a queue node.
 #[cfg(not(all(loom, test)))]
 pub fn inc_with<L>(mutex: &Arc<L>, node: L::Node) -> L::Node
 where
-    L: LockWithThen<Target = Int>,
+    L: LockWith<Target = Int>,
 {
-    mutex.lock_with_then(node, inc_inner::<L>).node
-}
-
-/// Increments a shared integer through a guard instance.
-fn inc_inner<L>(mut guard: L::Guard<'_>)
-where
-    L: LockWithThen<Target = Int>,
-{
+    let mut guard = mutex.lock_with(node);
     *guard.as_deref_mut() += 1;
+    guard.into()
 }
 
 #[cfg(all(not(loom), test))]
@@ -177,19 +183,19 @@ pub mod tests {
     use std::sync::Arc;
     use std::thread;
 
-    use super::{get, inc, inc_with, Int};
-    use super::{AsDeref, AsDerefMut, LockData, LockWithThen};
+    use super::{get, get_with, inc, inc_with, Int};
+    use super::{AsDeref, AsDerefMut, LockData, LockThen, LockWith};
 
     #[derive(Eq, PartialEq, Debug)]
     pub struct NonCopy(u32);
 
     const ITERS: Int = 1000;
-    const CONCURRENCY: Int = 3;
-    const EXPECTED_VALUE: Int = ITERS * CONCURRENCY * 2;
+    const THREADS: Int = 4;
+    const EXPECTED_VALUE: Int = ITERS * THREADS;
 
     fn inc_for<L, const END: Int>(mutex: &Arc<L>)
     where
-        L: LockWithThen<Target = Int>,
+        L: LockWith<Target = Int>,
     {
         let mut node = L::Node::default();
         for _ in 0..ITERS {
@@ -197,28 +203,22 @@ pub mod tests {
         }
     }
 
-    fn lots_and_lots<L>(f: fn(&Arc<L>)) -> Int
+    fn lots_and_lots<L, const THREADS: Int>(f: fn(&Arc<L>)) -> Int
     where
-        L: LockWithThen<Target = Int> + Send + Sync + 'static,
+        L: LockThen<Target = Int> + Send + Sync + 'static,
     {
         let mutex = Arc::new(L::new(0));
         let (tx, rx) = channel();
-        for _ in 0..CONCURRENCY {
-            let mutex1 = Arc::clone(&mutex);
-            let tx2 = tx.clone();
+        for _ in 0..THREADS {
+            let c_mutex = Arc::clone(&mutex);
+            let c_tx = tx.clone();
             thread::spawn(move || {
-                f(&mutex1);
-                tx2.send(()).unwrap();
-            });
-            let mutex2 = Arc::clone(&mutex);
-            let tx2 = tx.clone();
-            thread::spawn(move || {
-                f(&mutex2);
-                tx2.send(()).unwrap();
+                f(&c_mutex);
+                c_tx.send(()).unwrap();
             });
         }
         drop(tx);
-        for _ in 0..2 * CONCURRENCY {
+        for _ in 0..THREADS {
             rx.recv().unwrap();
         }
         get(&mutex)
@@ -226,26 +226,28 @@ pub mod tests {
 
     pub fn lots_and_lots_lock<L>()
     where
-        L: LockWithThen<Target = Int> + Send + Sync + 'static,
+        L: LockThen<Target = Int> + Send + Sync + 'static,
     {
-        let value = lots_and_lots(inc_for::<L, ITERS>);
+        let value = lots_and_lots::<L, THREADS>(inc_for::<L, ITERS>);
         assert_eq!(value, EXPECTED_VALUE);
     }
 
     pub fn smoke<L>()
     where
-        L: LockWithThen<Target = Int>,
+        L: LockWith<Target = Int>,
     {
         let mutex = L::new(1);
-        let mut node = L::Node::default();
-        node = mutex.lock_with_then(node, |guard| drop(guard)).node;
-        mutex.lock_with_then(node, |guard| drop(guard));
+        let node = L::Node::default();
+        let guard = mutex.lock_with(node);
+        let node = guard.into();
+        let guard = mutex.lock_with(node);
+        drop(guard);
     }
 
     pub fn test_guard_debug_display<L>()
     where
-        L: LockWithThen<Target = Int>,
-        for<'a> <L as LockWithThen>::Guard<'a>: Debug + Display,
+        L: LockThen<Target = Int>,
+        for<'a> <L as LockWith>::Guard<'a>: Debug + Display,
     {
         let value = 42;
         let mutex = L::new(value);
@@ -257,7 +259,7 @@ pub mod tests {
 
     pub fn test_mutex_debug<L>()
     where
-        L: LockWithThen<Target = Int> + Debug + Send + Sync + 'static,
+        L: LockThen<Target = Int> + Debug + Send + Sync + 'static,
     {
         let value = 42;
         let mutex = Arc::new(L::new(value));
@@ -293,8 +295,8 @@ pub mod tests {
 
     pub fn test_lock_arc_nested<L1, L2>()
     where
-        L1: LockWithThen<Target = Int>,
-        L2: LockWithThen<Target = Arc<L1>> + Send + Sync + 'static,
+        L1: LockThen<Target = Int>,
+        L2: LockThen<Target = Arc<L1>> + Send + Sync + 'static,
     {
         // Tests nested locks and access
         // to underlying data.
@@ -314,7 +316,7 @@ pub mod tests {
 
     pub fn test_acquire_more_than_one_lock<L>()
     where
-        L: LockWithThen<Target = Int> + Send + Sync + 'static,
+        L: LockThen<Target = Int> + Send + Sync + 'static,
     {
         let arc = Arc::new(L::new(1));
         let (tx, rx) = channel();
@@ -337,15 +339,15 @@ pub mod tests {
 
     pub fn test_lock_arc_access_in_unwind<L>()
     where
-        L: LockWithThen<Target = Int> + Send + Sync + 'static,
+        L: LockThen<Target = Int> + Send + Sync + 'static,
     {
         let arc = Arc::new(L::new(1));
         let arc2 = arc.clone();
         let _ = thread::spawn(move || {
-            struct Unwinder<T: LockWithThen<Target = Int>> {
+            struct Unwinder<T: LockThen<Target = Int>> {
                 i: Arc<T>,
             }
-            impl<T: LockWithThen<Target = Int>> Drop for Unwinder<T> {
+            impl<T: LockThen<Target = Int>> Drop for Unwinder<T> {
                 fn drop(&mut self) {
                     inc(&self.i);
                 }
@@ -360,7 +362,7 @@ pub mod tests {
 
     pub fn test_lock_unsized<L>()
     where
-        L: LockWithThen<Target = [Int; 3]>,
+        L: LockThen<Target = [Int; 3]>,
     {
         let mutex = Arc::new(L::new([1, 2, 3]));
         {
@@ -372,5 +374,16 @@ pub mod tests {
         let comp: &[Int] = &[4, 2, 5];
         let data = get(&mutex);
         assert_eq!(comp, data);
+    }
+
+    pub fn test_guard_into_node<L>()
+    where
+        L: LockThen<Target = Int>,
+    {
+        let mutex = Arc::new(L::new(0));
+        let mut node = L::Node::default();
+        node = inc_with(&mutex, node);
+        let value = get_with(&mutex, node);
+        assert_eq!(value, 1);
     }
 }

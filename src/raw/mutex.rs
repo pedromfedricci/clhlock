@@ -5,7 +5,7 @@ use crate::inner::raw as inner;
 use crate::relax::{Relax, RelaxWait};
 
 #[cfg(test)]
-use crate::test::{LockNew, LockWithThen, RetNode};
+use crate::test::{Lock, LockNew, LockThen, LockWith, LockWithThen};
 
 #[cfg(all(loom, test))]
 use crate::loom::{Guard, GuardDeref, GuardDerefMut};
@@ -64,10 +64,10 @@ impl Default for MutexNode {
     }
 }
 
-#[doc(hidden)]
-impl From<MutexNodeInner> for MutexNode {
-    fn from(inner: MutexNodeInner) -> Self {
-        Self { inner }
+#[cfg(test)]
+impl<T: ?Sized, R> From<MutexGuard<'_, T, R>> for MutexNode {
+    fn from(guard: MutexGuard<'_, T, R>) -> Self {
+        guard.unlock()
     }
 }
 
@@ -294,7 +294,7 @@ impl<T: ?Sized, R: Relax> Mutex<T, R> {
     where
         F: FnOnce(MutexGuard<'_, T, R>) -> Ret,
     {
-        self.lock_with_then(MutexNode::new(), f)
+        f(self.lock())
     }
 
     /// Acquires this mutex and then runs the closure against its guard.
@@ -418,20 +418,44 @@ impl<T: ?Sized, R> LockNew for Mutex<T, R> {
 }
 
 #[cfg(test)]
-impl<T: ?Sized, R: Relax> LockWithThen for Mutex<T, R> {
+impl<T: ?Sized, R: Relax> LockWith for Mutex<T, R> {
     type Node = MutexNode;
 
     type Guard<'a>
-        = &'a mut Self::Target
+        = MutexGuard<'a, T, R>
     where
         Self: 'a,
         Self::Target: 'a;
 
-    fn lock_with_then<F, Ret>(&self, node: Self::Node, f: F) -> RetNode<Ret, Self>
+    fn lock_with(&self, node: Self::Node) -> Self::Guard<'_> {
+        self.lock_with(node)
+    }
+}
+
+#[cfg(test)]
+impl<T: ?Sized, R: Relax> Lock for Mutex<T, R> {
+    fn lock(&self) -> Self::Guard<'_> {
+        self.lock()
+    }
+}
+
+#[cfg(test)]
+impl<T: ?Sized, R: Relax> LockWithThen for Mutex<T, R> {
+    fn lock_with_then<F, Ret>(&self, node: Self::Node, f: F) -> Ret
     where
-        F: FnOnce(&mut Self::Target) -> Ret,
+        F: FnOnce(MutexGuard<'_, T, R>) -> Ret,
     {
-        self.inner.lock_with_then(node.inner, f)
+        self.lock_with_then(node, f)
+    }
+}
+
+#[cfg(test)]
+impl<T: ?Sized, R: Relax> LockThen for Mutex<T, R> {
+    fn lock_then<F, Ret>(&self, f: F) -> Ret
+    where
+        F: FnOnce(MutexGuard<'_, T, R>) -> Ret,
+    {
+        self.lock_then(f)
     }
 }
 
@@ -644,11 +668,7 @@ mod test {
 
     #[test]
     fn test_guard_into_node() {
-        let mutex = Mutex::new(0);
-        let mut guard = mutex.lock();
-        *guard += 1;
-        let node = guard.unlock();
-        assert_eq!(*mutex.lock_with(node), 1);
+        tests::test_guard_into_node::<Mutex<_>>();
     }
 }
 
