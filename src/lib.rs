@@ -94,7 +94,7 @@
 //!
 //! [`parking_lot::Mutex`]: https://docs.rs/parking_lot/latest/parking_lot/type.Mutex.html
 
-#![cfg_attr(all(not(feature = "yield"), not(loom), not(test)), no_std)]
+#![no_std]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![allow(clippy::module_name_repetitions)]
 #![allow(clippy::inline_always)]
@@ -103,6 +103,9 @@
 #![warn(missing_docs)]
 
 extern crate alloc;
+
+#[cfg(any(feature = "yield", loom, test))]
+extern crate std;
 
 pub mod raw;
 pub mod relax;

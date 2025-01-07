@@ -179,6 +179,7 @@ pub mod tests {
     // except according to those terms.
 
     use std::fmt::{Debug, Display};
+    use std::format;
     use std::sync::mpsc::channel;
     use std::sync::Arc;
     use std::thread;
