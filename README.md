@@ -50,7 +50,7 @@ Or add a entry under the `[dependencies]` section in your `Cargo.toml`:
 # Cargo.toml
 
 [dependencies]
-# Available features: `yield`.
+# Features: `yield`.
 clhlock = { version = "0.2", features = ["yield"] }
 ```
 
@@ -85,7 +85,7 @@ is `no_std` compatible. See the [`raw`] module for more information.
 use std::sync::Arc;
 use std::thread;
 
-// `spins::Mutex` simply spins during contention.
+// Simply spins during contention.
 use clhlock::raw::{spins::Mutex, MutexNode};
 
 fn main() {
@@ -93,15 +93,15 @@ fn main() {
     let c_mutex = Arc::clone(&mutex);
 
     thread::spawn(move || {
-        // A queue node handle must be consumed.
+        // A handle to a heap allocated queue node.
         let node = MutexNode::new();
+        // The queue node handle must be consumed.
         *c_mutex.lock_with(node) = 10;
     })
     .join().expect("thread::spawn failed");
 
-    // A queue node handle must be consumed.
-    let node = MutexNode::new();
-    assert_eq!(*mutex.lock_with(node), 10);
+    // A node may also be transparently allocated.
+    assert_eq!(*mutex.lock(), 10);
 }
 ```
 

@@ -53,22 +53,22 @@
 //! use std::sync::Arc;
 //! use std::thread;
 //!
-//! // `spins::Mutex` simply spins during contention.
+//! // Simply spins during contention.
 //! use clhlock::raw::{spins::Mutex, MutexNode};
 //!
 //! let mutex = Arc::new(Mutex::new(0));
 //! let c_mutex = Arc::clone(&mutex);
 //!
 //! thread::spawn(move || {
-//!     // A queue node handle must consumed.
+//!     // A handle to a heap allocated queue node.
 //!     let node = MutexNode::new();
+//!     // The queue node handle must consumed.
 //!     *c_mutex.lock_with(node) = 10;
 //! })
 //! .join().expect("thread::spawn failed");
 //!
-//! // A queue node handle must be consumed.
-//! let node = MutexNode::new();
-//! assert_eq!(*mutex.lock_with(node), 10);
+//! // A node may also be transparently allocated.
+//! assert_eq!(*mutex.lock(), 10);
 //! ```
 //!
 //! ## Features
