@@ -29,4 +29,9 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [lints.rust.unexpected_cfgs]
 level = "warn"
-check-cfg = ["cfg(tarpaulin)", "cfg(tarpaulin_include)", "cfg(loom)", "cfg(ignore_leaks)"]
+check-cfg = [
+  "cfg(tarpaulin)",
+  "cfg(tarpaulin_include)",
+  "cfg(loom)",
+  "cfg(ignore_leaks)",
+]
