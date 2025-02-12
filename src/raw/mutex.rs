@@ -35,8 +35,9 @@ pub struct MutexNode {
     inner: MutexNodeInner,
 }
 
-// Same unsafe impls as `crate::inner::raw::MutexNode`.
+// SAFETY: `inner::MutexNode` is `Send`.
 unsafe impl Send for MutexNode {}
+// SAFETY: `inner::MutexNode` is `Sync`.
 unsafe impl Sync for MutexNode {}
 
 impl MutexNode {
@@ -135,8 +136,9 @@ pub struct Mutex<T: ?Sized, R> {
     pub(super) inner: MutexInner<T, R>,
 }
 
-// Same unsafe impls as `crate::inner::raw::Mutex`.
+// SAFETY: `inner::Mutex` is `Send` if `T` is `Send`.
 unsafe impl<T: ?Sized + Send, R> Send for Mutex<T, R> {}
+// SAFETY: `inner::Mutex` is `Sync` if `T` is `Send`.
 unsafe impl<T: ?Sized + Send, R> Sync for Mutex<T, R> {}
 
 impl<T, R> Mutex<T, R> {
@@ -492,8 +494,9 @@ pub struct MutexGuard<'a, T: ?Sized, R> {
     inner: GuardInner<'a, T, R>,
 }
 
-// Same unsafe impls as `crate::inner::raw::MutexGuard`.
+// SAFETY: `inner::MutexGuard` is `Send` if `T` is `Send`.
 unsafe impl<T: ?Sized + Send, R> Send for MutexGuard<'_, T, R> {}
+// SAFETY: `inner::MutexGuard` is `Send` if `T` is `Send`.
 unsafe impl<T: ?Sized + Sync, R> Sync for MutexGuard<'_, T, R> {}
 
 impl<T: ?Sized, R> MutexGuard<'_, T, R> {
@@ -564,10 +567,10 @@ impl<T: ?Sized, R> core::ops::DerefMut for MutexGuard<'_, T, R> {
     }
 }
 
-// SAFETY: A guard instance hold the lock locked, with exclusive access to the
-// underlying data.
 #[cfg(all(loom, test))]
 #[cfg(not(tarpaulin_include))]
+// SAFETY: A guard instance hold the lock locked, with exclusive access to the
+// underlying data.
 unsafe impl<T: ?Sized, R> crate::loom::Guard for MutexGuard<'_, T, R> {
     type Target = T;
 

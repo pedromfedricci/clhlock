@@ -66,6 +66,7 @@ pub struct MutexNode<L> {
 
 // SAFETY: Public APIs that mutate state require exclusive references.
 unsafe impl<L> Send for MutexNode<L> {}
+// SAFETY: Public APIs that mutate state require exclusive references.
 unsafe impl<L> Sync for MutexNode<L> {}
 
 impl<L> MutexNode<L> {
@@ -157,8 +158,12 @@ pub struct Mutex<T: ?Sized, L, W> {
     data: UnsafeCell<T>,
 }
 
-// Same unsafe impls as `std::sync::Mutex`.
+// SAFETY: A `Mutex` is safe to be sent across thread boundaries as long as
+// the inlined protected data `T` is also safe to be sent to other threads.
 unsafe impl<T: ?Sized + Send, L, W> Send for Mutex<T, L, W> {}
+// SAFETY: A `Mutex` is safe to be shared across thread boundaries since it
+// guarantees linearization of access and modification to the protected data,
+// but only if the protected data `T` is safe to be sent to other threads.
 unsafe impl<T: ?Sized + Send, L, W> Sync for Mutex<T, L, W> {}
 
 impl<T, L: Lock, W> Mutex<T, L, W> {
@@ -229,10 +234,16 @@ pub struct MutexGuard<'a, T: ?Sized, L: Lock, W> {
     head: MutexNode<L>,
 }
 
-// Rust's `std::sync::MutexGuard` is not Send for pthread compatibility, but this
-// impl is safe to be Send. Same unsafe Sync impl as `std::sync::MutexGuard`.
-unsafe impl<T: ?Sized + Send, L: Lock, W> Send for MutexGuard<'_, T, L, W> {}
-unsafe impl<T: ?Sized + Sync, L: Lock, W> Sync for MutexGuard<'_, T, L, W> {}
+// SAFETY: A `MutexGuard` is safe to be sent across thread boundaries as long as
+// the referenced protected data `T` is also safe to be sent to other threads.
+// Note that `std::sync::MutexGuard` is `!Send` because it must be compatible
+// with `Pthreads` implementation on Linux, but we do not have this constraint.
+unsafe impl<T: ?Sized + Send, L: Lock + Send, W> Send for MutexGuard<'_, T, L, W> {}
+// SAFETY: A `MutexGuard` is safe to be shared across thread boundaries since
+// it owns exclusive access over the protected data during its lifetime, and so
+// the can safely share references to the data, but only if the protected data
+// is also safe to be shared with other cuncurrent threads.
+unsafe impl<T: ?Sized + Sync, L: Lock + Sync, W> Sync for MutexGuard<'_, T, L, W> {}
 
 impl<'a, T: ?Sized, L: Lock, W> MutexGuard<'a, T, L, W> {
     /// Creates a new `MutexGuard` instance.
@@ -257,7 +268,7 @@ impl<'a, T: ?Sized, L: Lock, W> MutexGuard<'a, T, L, W> {
     pub fn into_node(mut self) -> MutexNode<L> {
         // SAFETY: We are only ever calling unlock once, since we "forget" the
         // guard, therefore the guard's `drop` call will not be called.
-        unsafe { self.unlock() }
+        unsafe { self.unlock() };
         let inner = self.head.inner;
         core::mem::forget(self);
         MutexNode { inner }
@@ -286,9 +297,10 @@ impl<'a, T: ?Sized, L: Lock, W> MutexGuard<'a, T, L, W> {
 impl<T: ?Sized, L: Lock, W> Drop for MutexGuard<'_, T, L, W> {
     #[inline]
     fn drop(&mut self) {
-        // The drop call is only ever run once for any value, and this instance
-        // is the only pointer to this heap allocated node at drop call time.
-        unsafe { self.unlock() }
+        // SAFETY: The drop call is only ever run once for any value, and this
+        // instance is the only pointer to the heap allocated node at drop call
+        // time, so it is safe to deallocate the node as we own it.
+        unsafe { self.unlock() };
     }
 }
 
@@ -326,10 +338,10 @@ impl<T: ?Sized, L: Lock, W> core::ops::DerefMut for MutexGuard<'_, T, L, W> {
     }
 }
 
-/// SAFETY: A guard instance hold the lock locked, with exclusive access to the
-/// underlying data.
 #[cfg(all(loom, test))]
 #[cfg(not(tarpaulin_include))]
+// SAFETY: A guard instance hold the lock locked, with exclusive access to the
+// underlying data.
 unsafe impl<T: ?Sized, L: Lock, W> crate::loom::Guard for MutexGuard<'_, T, L, W> {
     type Target = T;
 

@@ -95,12 +95,13 @@
 //! [`parking_lot::Mutex`]: https://docs.rs/parking_lot/latest/parking_lot/type.Mutex.html
 
 #![no_std]
-#![cfg_attr(docsrs, feature(doc_cfg))]
-#![allow(clippy::module_name_repetitions)]
-#![allow(clippy::inline_always)]
 #![allow(clippy::doc_markdown)]
-#![warn(rust_2024_compatibility)]
+#![allow(clippy::inline_always)]
+#![allow(clippy::module_name_repetitions)]
 #![warn(missing_docs)]
+#![warn(rust_2024_compatibility)]
+#![warn(clippy::undocumented_unsafe_blocks)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 extern crate alloc;
 
