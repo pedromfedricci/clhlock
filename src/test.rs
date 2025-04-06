@@ -133,7 +133,9 @@ pub fn get<L>(mutex: &Arc<L>) -> L::Target
 where
     L: Lock<Target: Sized + Copy>,
 {
-    *mutex.lock().as_deref()
+    let lock = mutex.lock();
+    let deref = lock.as_deref();
+    *deref
 }
 
 /// Get a copy of the mutex protected data, consuming a queue node.
