@@ -105,7 +105,7 @@
 
 extern crate alloc;
 
-#[cfg(any(feature = "yield", loom, test))]
+#[cfg(any(feature = "yield", feature = "parking", loom, test))]
 extern crate std;
 
 pub mod raw;
@@ -114,6 +114,10 @@ pub mod relax;
 pub(crate) mod cfg;
 pub(crate) mod inner;
 pub(crate) mod lock;
+
+#[cfg(feature = "parking")]
+#[cfg_attr(docsrs, doc(cfg(feature = "parking")))]
+pub mod parking;
 
 #[cfg(test)]
 pub(crate) mod test;
