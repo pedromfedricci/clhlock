@@ -611,7 +611,7 @@ impl<T: ?Sized, P> AsDerefMut for MutexGuard<'_, T, P> {
 
 #[cfg(all(not(loom), test))]
 mod test {
-    use crate::raw::yields::Mutex;
+    use crate::parking::raw::yields::Mutex;
     use crate::test::tests;
 
     #[test]
