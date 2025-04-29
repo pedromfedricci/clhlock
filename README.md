@@ -9,14 +9,14 @@
 ![No_std][no_std-badge]
 
 CLH lock is a List-Based Queuing Lock that avoids network contention by
-having threads spin and on locally accessible memory locations. The main
-properties of this mechanism are:
+having threads spin and/or park on locally accessible memory locations.
+The main properties of this mechanism are:
 
 - guarantees FIFO ordering of lock acquisitions;
 - spins on locally-accessible flag variables only;
-- requires a small constant amount of space per lock; and
+- requires a small constant amount of space per lock;
 - works equally well (requiring only O(1) network transactions per lock
-  acquisition) on machines with and without coherent caches.
+  acquisition) on machines with and without coherent caches; and
 - avoids the "handshake" runtime overhead between the lock holder and
   its successor during lock hand-off.
 
@@ -27,9 +27,9 @@ This algorithm was indenpendently introduced by [Craig] and
 
 It is noteworthy to mention that [spinlocks are usually not what you want].
 The majority of use cases are well covered by OS-based mutexes like
-[`std::sync::Mutex`], [`parking_lot::Mutex`]. These implementations will
-notify the system that the waiting thread should be parked, freeing the
-processor to work on something else.
+[`std::sync::Mutex`], [`parking_lot::Mutex`]. or even this crate's [`parking`]
+Mutex. These implementations will notify the system that the waiting thread
+should be parked, freeing the processor to work on something else.
 
 Spinlocks are only efficient in very few circunstances where the overhead
 of context switching or process rescheduling are greater than busy waiting
@@ -208,6 +208,8 @@ each of your dependencies, including this one.
 [`raw`]: https://docs.rs/clhlock/latest/clhlock/raw/index.html
 [`raw::Mutex`]: https://docs.rs/clhlock/latest/clhlock/raw/struct.Mutex.html
 [`raw::MutexNode`]: https://docs.rs/clhlock/latest/clhlock/raw/struct.MutexNode.html
+[`parking`]: https://docs.rs/clhlock/latest/clhlock/parking/index.html
+[`parking::park`]: https://docs.rs/mcslock/latest/mcslock/parking/park/index.html
 
 [alloc]: https://doc.rust-lang.org/alloc/index.html
 [`std::sync::Mutex`]: https://doc.rust-lang.org/std/sync/struct.Mutex.html
