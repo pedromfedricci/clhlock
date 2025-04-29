@@ -43,7 +43,7 @@ jobs:
           --target ${{ env.NO_STD_TARGET }}
           --no-dev-deps
           --feature-powerset
-          --skip yield
+          --skip yield,parking
 
   msrv:
     name: MSRV
@@ -102,6 +102,8 @@ jobs:
         run: rustup toolchain install stable
       - name: Run raw example
         run: cargo run --example raw
+      - name: Run parking example
+        run: cargo run --example parking --features parking,thread_local
 
   linter:
     name: Linter

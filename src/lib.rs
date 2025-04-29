@@ -71,6 +71,37 @@
 //! assert_eq!(*mutex.lock(), 10);
 //! ```
 //!
+//! ## Locking with thread parking CLH locks
+//!
+//! This crate also supports a CLH lock implementation that will put the blocking
+//! threads to sleep. The `raw` implementation has a matching `Mutex` type under
+//! the [`parking`] module, with corresponding path and public APIs, that is thread
+//! parking capable. This implementations is not `no_std` compatible. See [`parking`]
+//! module for more information.
+//!
+//! ```
+//! use std::sync::Arc;
+//! use std::thread;
+//!
+//! // Requires `parking` feature.
+//! // Spins for a while then parks during contention.
+//! use clhlock::parking::raw::{spins::Mutex, MutexNode};
+//!
+//! let mutex = Arc::new(Mutex::new(0));
+//! let c_mutex = Arc::clone(&mutex);
+//!
+//! thread::spawn(move || {
+//!     // A handle to a heap allocated queue node.
+//!     let node = MutexNode::new();
+//!     // The queue node handle must be consumed.
+//!     *c_mutex.lock_with(node) = 10;
+//! })
+//! .join().expect("thread::spawn failed");
+//!
+//! // A node may also be transparently allocated.
+//! assert_eq!(*mutex.lock(), 10);
+//! ```
+//!
 //! ## Features
 //!
 //! This crate dos not provide any default features. Features that can be enabled
@@ -86,6 +117,13 @@
 //! this feature if your intention is to to actually do optimistic spinning. The
 //! default implementation calls [`core::hint::spin_loop`], which does in fact
 //! just simply busy-waits. This feature is not `not_std` compatible.
+//!
+//! ### parking
+//!
+//! The `parking` feature provides a Mutex implementation that is capable of putting
+//! blocking threads waiting for the lock to sleep. This implementation is published
+//! under the [`parking`] module. This implementation is not `no_std` compatible.
+//! Users may select a out of the box parking policy under [`parking::park`].
 //!
 //! [lock]: https://en.wikipedia.org/wiki/Lock_(computer_science)
 //! [Craig]: https://dada.cs.washington.edu/research/tr/1993/02/UW-CSE-93-02-02.pdf

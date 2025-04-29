@@ -75,6 +75,63 @@ impl<T: ?Sized, P> From<MutexGuard<'_, T, P>> for MutexNode {
 // The inner type of the mutex, with a `futext` compatible atomic value.
 type MutexInner<T, P> = inner::Mutex<T, Parker, ParkWait<P>>;
 
+/// A mutual exclusion primitive useful for protecting shared data.
+///
+/// This mutex will block threads waiting for the lock to become available. The
+/// mutex can created via a [`new`] constructor. Each mutex has a type parameter
+/// which represents the data that it is protecting. The data can only be accessed
+/// through the RAII guards returned by the [`lock`]  and [`lock_with`] methods,
+/// but also as the closure parameter for [`lock_with_then`] method, which
+/// guarantees that the data is only ever accessed when the mutex is locked.
+///
+/// # Examples
+///
+/// ```
+/// use std::sync::Arc;
+/// use std::thread;
+/// use std::sync::mpsc::channel;
+///
+/// use clhlock::parking::raw::{self, MutexNode};
+/// use clhlock::parking::park::SpinThenPark;
+///
+/// type Mutex<T> = raw::Mutex<T, SpinThenPark>;
+///
+/// const N: usize = 10;
+///
+/// // Spawn a few threads to increment a shared variable (non-atomically), and
+/// // let the main thread know once all increments are done.
+/// //
+/// // Here we're using an Arc to share memory among threads, and the data inside
+/// // the Arc is protected with a mutex.
+/// let data = Arc::new(Mutex::new(0));
+///
+/// let (tx, rx) = channel();
+/// for _ in 0..N {
+///     let (data, tx) = (data.clone(), tx.clone());
+///     thread::spawn(move || {
+///         // A queue node must be consumed.
+///         let node = MutexNode::new();
+///         // The shared state can only be accessed once the lock is held.
+///         // Our non-atomic increment is safe because we're the only thread
+///         // which can access the shared state when the lock is held.
+///         //
+///         // We unwrap() the return value to assert that we are not expecting
+///         // threads to ever fail while holding the lock.
+///         let mut data = data.lock_with(node);
+///         *data += 1;
+///         if *data == N {
+///             tx.send(()).unwrap();
+///         }
+///         // the lock is unlocked here when `data` goes out of scope.
+///     });
+/// }
+///
+/// rx.recv().unwrap();
+/// ```
+/// [`new`]: Mutex::new
+/// [`lock`]: Mutex::lock
+/// [`lock_with`]: Mutex::lock_with
+/// [`lock_with_then`]: Mutex::lock_with_then
 pub struct Mutex<T: ?Sized, P> {
     pub(super) inner: MutexInner<T, P>,
 }
@@ -85,6 +142,18 @@ unsafe impl<T: ?Sized + Send, P> Send for Mutex<T, P> {}
 unsafe impl<T: ?Sized + Send, P> Sync for Mutex<T, P> {}
 
 impl<T, P> Mutex<T, P> {
+    /// Creates a new mutex in an unlocked state ready for use.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use clhlock::parking::raw;
+    /// use clhlock::parking::park::SpinThenPark;
+    ///
+    /// type Mutex<T> = raw::Mutex<T, SpinThenPark>;
+    ///
+    /// let mutex = Mutex::new(0);
+    /// ```
     #[inline]
     pub fn new(value: T) -> Self {
         Self { inner: inner::Mutex::new(value) }
@@ -92,16 +161,136 @@ impl<T, P> Mutex<T, P> {
 }
 
 impl<T: ?Sized, P: Park> Mutex<T, P> {
+    /// Acquires this mutex, blocking the current thread until it is able to do so.
+    ///
+    /// This function will block the local thread until it is available to acquire
+    /// the mutex. Upon returning, the thread is the only thread with the lock
+    /// held. An RAII guard is returned to allow scoped unlock of the lock. When
+    /// the guard goes out of scope, the mutex will be unlocked.
+    ///
+    /// This function transparently allocates a [`MutexNode`] for each call,
+    /// and so it will not reuse the same node for other calls. Consider calling
+    /// [`lock_with`] if you want to reuse node allocations returned by the
+    /// [`MutexGuard`]'s [`unlock`] method.
+    ///
+    /// This function will block if the lock is unavailable.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use std::thread;
+    ///
+    /// use clhlock::parking::raw;
+    /// use clhlock::parking::park::SpinThenPark;
+    ///
+    /// type Mutex<T> = raw::Mutex<T, SpinThenPark>;
+    ///
+    /// let mutex = Arc::new(Mutex::new(0));
+    /// let c_mutex = Arc::clone(&mutex);
+    ///
+    /// thread::spawn(move || {
+    ///     *c_mutex.lock() = 10;
+    /// })
+    /// .join().expect("thread::spawn failed");
+    ///
+    /// assert_eq!(*mutex.lock(), 10);
+    /// ```
+    /// [`lock_with`]: Mutex::lock_with
+    /// [`unlock`]: MutexGuard::unlock
     #[inline]
     pub fn lock(&self) -> MutexGuard<'_, T, P> {
         self.lock_with(MutexNode::new())
     }
 
+    /// Acquires this mutex, blocking the current thread until it is able to do so.
+    ///
+    /// This function will block the local thread until it is available to acquire
+    /// the mutex. Upon returning, the thread is the only thread with the lock
+    /// held. An RAII guard is returned to allow scoped unlock of the lock. When
+    /// the guard goes out of scope, the mutex will be unlocked.
+    ///
+    /// To acquire a CLH lock through this function, it's also required to
+    /// consume queue node, which is a record that keeps a link for forming the
+    /// queue, see [`MutexNode`].
+    ///
+    /// This function will block if the lock is unavailable.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use std::thread;
+    ///
+    /// use clhlock::parking::raw::{self, MutexNode};
+    /// use clhlock::parking::park::SpinThenPark;
+    ///
+    /// type Mutex<T> = raw::Mutex<T, SpinThenPark>;
+    ///
+    /// let mutex = Arc::new(Mutex::new(0));
+    /// let c_mutex = Arc::clone(&mutex);
+    ///
+    /// thread::spawn(move || {
+    ///     let node = MutexNode::new();
+    ///     *c_mutex.lock_with(node) = 10;
+    /// })
+    /// .join().expect("thread::spawn failed");
+    ///
+    /// let node = MutexNode::new();
+    /// assert_eq!(*mutex.lock_with(node), 10);
+    /// ```
     #[inline]
     pub fn lock_with(&self, node: MutexNode) -> MutexGuard<'_, T, P> {
         self.inner.lock_with(node.inner).into()
     }
 
+    /// Acquires this mutex and then runs the closure against its guard.
+    ///
+    /// This function will block the local thread until it is available to acquire
+    /// the mutex. Upon acquiring the mutex, the user provided closure will be
+    /// executed against the mutex guard. Once the guard goes out of scope, it
+    /// will unlock the mutex.
+    ///
+    /// This function transparently allocates a [`MutexNode`] for each call,
+    /// and so it will not reuse the same node for other calls. Consider calling
+    /// [`lock_with_then`] if you want to reuse node allocations returned by the
+    /// [`MutexGuard`]'s [`unlock`] method.
+    ///
+    /// This function will block if the lock is unavailable.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use std::thread;
+    ///
+    /// use clhlock::parking::raw;
+    /// use clhlock::parking::park::SpinThenPark;
+    ///
+    /// type Mutex<T> = raw::Mutex<T, SpinThenPark>;
+    ///
+    /// let mutex = Arc::new(Mutex::new(0));
+    /// let c_mutex = Arc::clone(&mutex);
+    ///
+    /// thread::spawn(move || {
+    ///     c_mutex.lock_then(|mut guard| *guard = 10);
+    /// })
+    /// .join().expect("thread::spawn failed");
+    ///
+    /// assert_eq!(mutex.lock_then(|guard| *guard), 10);
+    /// ```
+    ///
+    /// Compile fail: borrows of the guard or its data cannot escape the given
+    /// closure:
+    ///
+    /// ```compile_fail,E0515
+    /// use clhlock::raw::spins::Mutex;
+    ///
+    /// let mutex = Mutex::new(1);
+    /// let data = mutex.lock_then(|guard| &*guard);
+    /// ```
+    /// [`lock_with_then`]: Mutex::lock_with_then
+    /// [`unlock`]: MutexGuard::unlock
     #[inline]
     pub fn lock_then<F, Ret>(&self, f: F) -> Ret
     where
@@ -110,6 +299,52 @@ impl<T: ?Sized, P: Park> Mutex<T, P> {
         f(self.lock())
     }
 
+    /// Acquires this mutex and then runs the closure against its guard.
+    ///
+    /// This function will block the local thread until it is available to acquire
+    /// the mutex. Upon acquiring the mutex, the user provided closure will be
+    /// executed against the mutex guard. Once the guard goes out of scope, it
+    /// will unlock the mutex.
+    ///
+    /// To acquire a CLH lock through this function, it's also required to
+    /// consume queue node, which is a record that keeps a link for forming the
+    /// queue, see [`MutexNode`].
+    ///
+    /// This function will block if the lock is unavailable.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use std::thread;
+    ///
+    /// use clhlock::parking::raw::{self, MutexNode};
+    /// use clhlock::parking::park::SpinThenPark;
+    ///
+    /// type Mutex<T> = raw::Mutex<T, SpinThenPark>;
+    ///
+    /// let mutex = Arc::new(Mutex::new(0));
+    /// let c_mutex = Arc::clone(&mutex);
+    ///
+    /// thread::spawn(move || {
+    ///     let node = MutexNode::new();
+    ///     c_mutex.lock_with_then(node, |mut data| *data = 10);
+    /// })
+    /// .join().expect("thread::spawn failed");
+    ///
+    /// let node = MutexNode::new();
+    /// assert_eq!(mutex.lock_with_then(node, |data| *data), 10);
+    /// ```
+    ///
+    /// Compile fail: borrows of the data cannot escape the given closure:
+    ///
+    /// ```compile_fail,E0515
+    /// use clhlock::raw::{spins::Mutex, MutexNode};
+    ///
+    /// let mutex = Mutex::new(1);
+    /// let node = MutexNode::new();
+    /// let borrow = mutex.lock_with_then(node, |data| &*data);
+    /// ```
     #[inline]
     pub fn lock_with_then<F, Ret>(&self, node: MutexNode, f: F) -> Ret
     where
@@ -236,6 +471,24 @@ impl<T: ?Sized, P> crate::test::LockData for Mutex<T, P> {
 // The inner type of the mutex's guard, with a `futex` compatible atomic value.
 type GuardInner<'a, T, P> = inner::MutexGuard<'a, T, Parker, ParkWait<P>>;
 
+/// An RAII implementation of a "scoped lock" of a mutex. When this structure is
+/// dropped (falls out of scope), the lock will be unlocked.
+///
+/// The data protected by the mutex can be access through this guard via its
+/// [`Deref`] and [`DerefMut`] implementations.
+///
+/// This structure is returned by the [`lock`] method on [`Mutex`]. It is also
+/// given as closure parameter by the [`lock_with`] method.
+///
+/// A guard may be explicitly unlocked by the [`unlock`] method, which returns
+/// a instance of [`MutexNode`], that may be reused by other locking operations
+/// that require taking ownership over the nodes.
+///
+/// [`Deref`]: core::ops::Deref
+/// [`DerefMut`]: core::ops::DerefMut
+/// [`lock`]: Mutex::lock
+/// [`lock_with`]: Mutex::lock_with
+/// [`unlock`]: MutexGuard::unlock
 #[must_use = "if unused the Mutex will immediately unlock"]
 pub struct MutexGuard<'a, T: ?Sized, P> {
     inner: GuardInner<'a, T, P>,
@@ -247,6 +500,25 @@ unsafe impl<T: ?Sized + Send, P> Send for MutexGuard<'_, T, P> {}
 unsafe impl<T: ?Sized + Sync, P> Sync for MutexGuard<'_, T, P> {}
 
 impl<T: ?Sized, P> MutexGuard<'_, T, P> {
+    /// Unlocks the mutex and returns a node instance that can be reused by
+    /// another locking operation.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use clhlock::parking::raw::{self, MutexNode};
+    /// use clhlock::parking::park::SpinThenPark;
+    ///
+    /// type Mutex<T> = raw::Mutex<T, SpinThenPark>;
+    ///
+    /// let mutex = Mutex::new(0);
+    /// let mut node = MutexNode::new();
+    ///
+    /// let mut guard = mutex.lock_with(node);
+    /// *guard += 1;
+    ///
+    /// node = guard.unlock();
+    /// assert_eq!(*mutex.lock_with(node), 1);
     #[must_use]
     #[inline]
     pub fn unlock(self) -> MutexNode {
