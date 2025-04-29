@@ -103,7 +103,7 @@ jobs:
       - name: Run raw example
         run: cargo run --example raw
       - name: Run parking example
-        run: cargo run --example parking --features parking,thread_local
+        run: cargo run --example parking --features parking
 
   linter:
     name: Linter
