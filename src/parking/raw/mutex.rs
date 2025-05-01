@@ -611,12 +611,14 @@ impl<T: ?Sized, P> AsDerefMut for MutexGuard<'_, T, P> {
 
 #[cfg(all(not(loom), test))]
 mod test {
-    use crate::parking::raw::yields::Mutex;
+    use crate::parking::raw::{immediate, yields};
     use crate::test::tests;
 
+    type Mutex<T> = immediate::Mutex<T>;
+
     #[test]
-    fn lots_and_lots_lock() {
-        tests::lots_and_lots_lock::<Mutex<_>>();
+    fn lots_and_lots_lock_yield_backoff_then_park() {
+        tests::lots_and_lots_lock::<yields::backoff::Mutex<_>>();
     }
 
     #[test]
