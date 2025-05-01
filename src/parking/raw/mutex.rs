@@ -622,6 +622,11 @@ mod test {
     }
 
     #[test]
+    fn lots_and_lots_lock_immediate_park() {
+        tests::lots_and_lots_lock::<immediate::Mutex<_>>();
+    }
+
+    #[test]
     fn smoke() {
         tests::smoke::<Mutex<_>>();
     }
