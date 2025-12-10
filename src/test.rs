@@ -129,7 +129,7 @@ impl<T: DerefMut> AsDerefMut for T {
 pub type Int = u32;
 
 /// Get a copy of the mutex protected data.
-pub fn get<L>(mutex: &Arc<L>) -> L::Target
+pub fn lock_get<L>(mutex: &Arc<L>) -> L::Target
 where
     L: Lock<Target: Sized + Copy>,
 {
@@ -140,7 +140,7 @@ where
 
 /// Get a copy of the mutex protected data, consuming a queue node.
 #[cfg(not(all(loom, test)))]
-pub fn get_with<L>(mutex: &Arc<L>, node: L::Node) -> L::Target
+pub fn lock_get_with<L>(mutex: &Arc<L>, node: L::Node) -> L::Target
 where
     L: LockWithThen<Target: Sized + Copy>,
 {
@@ -148,7 +148,7 @@ where
 }
 
 /// Increments a shared integer.
-pub fn inc<L>(mutex: &Arc<L>)
+pub fn lock_inc<L>(mutex: &Arc<L>)
 where
     L: LockThen<Target = Int>,
 {
@@ -157,7 +157,7 @@ where
 
 /// Increments a shared integer, consuming and returning a queue node.
 #[cfg(not(all(loom, test)))]
-pub fn inc_with<L>(mutex: &Arc<L>, node: L::Node) -> L::Node
+pub fn lock_inc_with<L>(mutex: &Arc<L>, node: L::Node) -> L::Node
 where
     L: LockWith<Target = Int>,
 {
@@ -185,8 +185,9 @@ pub mod tests {
     use std::sync::mpsc::channel;
     use std::sync::Arc;
     use std::thread;
+    use std::vec::Vec;
 
-    use super::{get, get_with, inc, inc_with, Int};
+    use super::{lock_get, lock_get_with, lock_inc, lock_inc_with, Int};
     use super::{AsDeref, AsDerefMut, LockData, LockThen, LockWith};
 
     #[derive(Eq, PartialEq, Debug)]
@@ -202,7 +203,7 @@ pub mod tests {
     {
         let mut node = L::Node::default();
         for _ in 0..ITERS {
-            node = inc_with::<L>(mutex, node);
+            node = lock_inc_with::<L>(mutex, node);
         }
     }
 
@@ -224,7 +225,7 @@ pub mod tests {
         for _ in 0..THREADS {
             rx.recv().unwrap();
         }
-        get(&mutex)
+        lock_get(&mutex)
     }
 
     pub fn lots_and_lots_lock<L>()
@@ -303,18 +304,16 @@ pub mod tests {
     {
         // Tests nested locks and access
         // to underlying data.
-        let arc = Arc::new(L1::new(1));
-        let arc2 = Arc::new(L2::new(arc));
-        let (tx, rx) = channel();
+        let arc1 = Arc::new(L1::new(1));
+        let arc2 = Arc::new(L2::new(arc1));
         let _t = thread::spawn(move || {
-            let val = arc2.lock_then(|arc2| {
-                let arc2 = arc2.as_deref();
-                get(&arc2)
+            let val = arc2.lock_then(|arc1| {
+                let arc1 = arc1.as_deref();
+                lock_get(&arc1)
             });
             assert_eq!(val, 1);
-            tx.send(()).unwrap();
-        });
-        rx.recv().unwrap();
+        })
+        .join();
     }
 
     pub fn test_acquire_more_than_one_lock<L>()
@@ -322,21 +321,19 @@ pub mod tests {
         L: LockThen<Target = Int> + Send + Sync + 'static,
     {
         let arc = Arc::new(L::new(1));
-        let (tx, rx) = channel();
+        let mut threads = Vec::new();
         for _ in 0..4 {
-            let tx2 = tx.clone();
             let c_arc = Arc::clone(&arc);
-            let _t = thread::spawn(move || {
+            let t = thread::spawn(move || {
                 c_arc.lock_then(|_d| {
                     let mutex = L::new(1);
-                    mutex.lock_then(|_g| ());
+                    mutex.lock_then(|_d| ());
                 });
-                tx2.send(()).unwrap();
             });
+            threads.push(t);
         }
-        drop(tx);
-        for _ in 0..4 {
-            rx.recv().unwrap();
+        for thread in threads {
+            let _t = thread.join();
         }
     }
 
@@ -352,14 +349,14 @@ pub mod tests {
             }
             impl<T: LockThen<Target = Int>> Drop for Unwinder<T> {
                 fn drop(&mut self) {
-                    inc(&self.i);
+                    lock_inc(&self.i);
                 }
             }
             let _u = Unwinder { i: arc2 };
             panic!();
         })
         .join();
-        let value = get(&arc);
+        let value = lock_get(&arc);
         assert_eq!(value, 2);
     }
 
@@ -375,7 +372,7 @@ pub mod tests {
             });
         }
         let comp: &[Int] = &[4, 2, 5];
-        let data = get(&mutex);
+        let data = lock_get(&mutex);
         assert_eq!(comp, data);
     }
 
@@ -385,8 +382,8 @@ pub mod tests {
     {
         let mutex = Arc::new(L::new(0));
         let mut node = L::Node::default();
-        node = inc_with(&mutex, node);
-        let value = get_with(&mutex, node);
+        node = lock_inc_with(&mutex, node);
+        let value = lock_get_with(&mutex, node);
         assert_eq!(value, 1);
     }
 }

@@ -87,16 +87,16 @@ pub mod models {
     use loom::{model, thread};
 
     use crate::test::LockThen;
-    use crate::test::{get, inc, Int};
+    use crate::test::{lock_get, lock_inc, Int};
 
     /// Get a copy of the shared integer, converting it to usize.
     ///
     /// Panics if the cast fails.
-    fn get_unwrap<L>(lock: &Arc<L>) -> usize
+    fn lock_get_unwrap<L>(lock: &Arc<L>) -> usize
     where
         L: LockThen<Target = Int>,
     {
-        get(lock).try_into().unwrap()
+        lock_get(lock).try_into().unwrap()
     }
 
     const LOCKS: usize = 3;
@@ -112,12 +112,12 @@ pub mod models {
             let lock = Arc::new(L::new(0));
             let handles: [_; RUNS] = array::from_fn(|_| {
                 let lock = Arc::clone(&lock);
-                thread::spawn(move || inc(&lock))
+                thread::spawn(move || lock_inc(&lock))
             });
             for handle in handles {
                 handle.join().unwrap();
             }
-            let value = get_unwrap(&lock);
+            let value = lock_get_unwrap(&lock);
             assert_eq!(RUNS, value);
         });
     }
