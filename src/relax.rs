@@ -301,6 +301,9 @@ mod wait {
     use crate::lock::Wait;
     use crate::relax::Relax;
 
+    #[cfg(feature = "parking")]
+    use crate::parking::park::CantPark;
+
     /// A generic relaxed waiter, that implements [`Relax`] so long as `R`
     /// implements it too.
     ///
@@ -312,6 +315,8 @@ mod wait {
 
     impl<R: Relax> Wait for RelaxWait<R> {
         type LockRelax = R;
+        #[cfg(feature = "parking")]
+        type Park = CantPark<R>;
     }
 }
 

@@ -3,14 +3,14 @@
 //! as CLH lock.
 //!
 //! CLH lock is a List-Based Queuing Lock that avoids network contention by
-//! having threads spin and on locally accessible memory locations. The main
-//! properties of this mechanism are:
+//! having threads spin and/or park on locally accessible memory locations.
+//! The main properties of this mechanism are:
 //!
 //! - guarantees FIFO ordering of lock acquisitions;
 //! - spins on locally-accessible flag variables only;
-//! - requires a small constant amount of space per lock; and
+//! - requires a small constant amount of space per lock;
 //! - works equally well (requiring only O(1) network transactions per lock
-//!   acquisition) on machines with and without coherent caches.
+//!   acquisition) on machines with and without coherent caches; and
 //! - avoids the "handshake" runtime overhead between the lock holder and
 //!   its successor during lock release.
 //!
@@ -21,9 +21,9 @@
 //!
 //! It is noteworthy to mention that [spinlocks are usually not what you want].
 //! The majority of use cases are well covered by OS-based mutexes like
-//! [`std::sync::Mutex`], [`parking_lot::Mutex`]. These implementations will
-//! notify the system that the waiting thread should be parked, freeing the
-//! processor to work on something else.
+//! [`std::sync::Mutex`], [`parking_lot::Mutex`] or even this crate's [`parking`]
+//! Mutex. These implementations will notify the system that the waiting thread
+//! should be parked, freeing the processor to work on something else.
 //!
 //! Spinlocks are only efficient in very few circunstances where the overhead
 //! of context switching or process rescheduling are greater than busy waiting
@@ -71,6 +71,37 @@
 //! assert_eq!(*mutex.lock(), 10);
 //! ```
 //!
+//! ## Locking with thread parking CLH locks
+//!
+//! This crate also supports a CLH lock implementation that will put the blocking
+//! threads to sleep. The `raw` implementation has a matching `Mutex` type under
+//! the [`parking`] module, with corresponding path and public APIs, that is thread
+//! parking capable. This implementations is not `no_std` compatible. See [`parking`]
+//! module for more information.
+//!
+//! ```
+//! use std::sync::Arc;
+//! use std::thread;
+//!
+//! // Requires `parking` feature.
+//! // Spins for a while then parks during contention.
+//! use clhlock::parking::raw::{spins::Mutex, MutexNode};
+//!
+//! let mutex = Arc::new(Mutex::new(0));
+//! let c_mutex = Arc::clone(&mutex);
+//!
+//! thread::spawn(move || {
+//!     // A handle to a heap allocated queue node.
+//!     let node = MutexNode::new();
+//!     // The queue node handle must be consumed.
+//!     *c_mutex.lock_with(node) = 10;
+//! })
+//! .join().expect("thread::spawn failed");
+//!
+//! // A node may also be transparently allocated.
+//! assert_eq!(*mutex.lock(), 10);
+//! ```
+//!
 //! ## Features
 //!
 //! This crate dos not provide any default features. Features that can be enabled
@@ -86,6 +117,13 @@
 //! this feature if your intention is to to actually do optimistic spinning. The
 //! default implementation calls [`core::hint::spin_loop`], which does in fact
 //! just simply busy-waits. This feature is not `not_std` compatible.
+//!
+//! ### parking
+//!
+//! The `parking` feature provides a Mutex implementation that is capable of putting
+//! blocking threads waiting for the lock to sleep. This implementation is published
+//! under the [`parking`] module. This implementation is not `no_std` compatible.
+//! Users may select a out of the box parking policy under [`parking::park`].
 //!
 //! [lock]: https://en.wikipedia.org/wiki/Lock_(computer_science)
 //! [Craig]: https://dada.cs.washington.edu/research/tr/1993/02/UW-CSE-93-02-02.pdf
@@ -105,7 +143,7 @@
 
 extern crate alloc;
 
-#[cfg(any(feature = "yield", loom, test))]
+#[cfg(any(feature = "yield", feature = "parking", loom, test))]
 extern crate std;
 
 pub mod raw;
@@ -114,6 +152,10 @@ pub mod relax;
 pub(crate) mod cfg;
 pub(crate) mod inner;
 pub(crate) mod lock;
+
+#[cfg(feature = "parking")]
+#[cfg_attr(docsrs, doc(cfg(feature = "parking")))]
+pub mod parking;
 
 #[cfg(test)]
 pub(crate) mod test;

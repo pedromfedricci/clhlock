@@ -17,8 +17,14 @@ categories = ["algorithms", "concurrency", "no-std"]
 keywords = ["mutex", "no_std", "spinlock", "synchronization"]
 
 [features]
-# NOTE: Feature `yield` requires std.
+# NOTE: Feature `yield` and `parking` requires std.
 yield = []
+# NOTE: The `dep:` syntax requires Rust 1.60.
+parking = ["dep:atomic-wait"]
+
+[dependencies.atomic-wait]
+version = "1"
+optional = true
 
 [target.'cfg(loom)'.dev-dependencies.loom]
 version = "0.7"
@@ -35,3 +41,7 @@ check-cfg = [
   "cfg(loom)",
   "cfg(ignore_leaks)",
 ]
+
+[[example]]
+name = "parking"
+required-features = ["parking"]
